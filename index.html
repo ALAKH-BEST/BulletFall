@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<title>BULLETFALL — Test Arena</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+
+
+
+<div id="map-picker" class="map-picker hidden" role="dialog" aria-modal="true" aria-labelledby="map-picker-title">
+  <div class="map-picker-card">
+    <div class="warning-kicker">MISSION SELECT // THEATRE OF OPERATIONS</div>
+    <h2 id="map-picker-title">SELECT YOUR BATTLEFIELD</h2>
+    <p>Choose a map for this deployment. Both maps share your existing progression and weapons.</p>
+    <div class="map-choice-grid">
+      <button class="map-choice selected" id="map-choice-classic">
+        <span class="map-preview classic-preview"></span>
+        <strong>DUSTLINE CANYON</strong>
+        <small>Classic map · Original environment</small>
+        <em>DEFAULT</em>
+      </button>
+      <button class="map-choice" id="map-choice-arctic">
+        <span class="map-preview arctic-preview"></span>
+        <strong>ARCTIC OUTPOST</strong>
+        <small>High-fidelity snowy battlefield</small>
+        <em>HIGH GRAPHICS</em>
+      </button>
+    </div>
+    <div class="warning-actions">
+      <button class="btn" id="map-choice-confirm">Confirm battlefield</button>
+      <button class="btn ghost" id="map-choice-cancel">Back</button>
+    </div>
+  </div>
+</div>
+
+<div id="graphics-warning" class="graphics-warning hidden" role="dialog" aria-modal="true" aria-labelledby="graphics-warning-title">
+  <div class="graphics-warning-card">
+    <div class="warning-kicker">FIELD INTELLIGENCE // PERFORMANCE NOTICE</div>
+    <h2 id="graphics-warning-title">ARCTIC OUTPOST // HIGH FIDELITY</h2>
+    <p>This map uses denser terrain, extra environment detail, high-resolution rendering and real-time shadows. Older laptops and integrated graphics may experience lower FPS or increased heat.</p>
+    <div class="requirements-grid">
+      <div><span>MINIMUM TO TRY</span><b>4-core CPU · 8 GB RAM</b><small>DirectX 11 / WebGL 2 graphics</small></div>
+      <div><span>RECOMMENDED FOR SMOOTH PLAY</span><b>6-core CPU · 16 GB RAM</b><small>Dedicated GPU, 4 GB VRAM · SSD</small></div>
+    </div>
+    <p class="requirements-note">These are estimates, not a guarantee. Browser, resolution and other running apps affect performance.</p>
+    <div class="warning-actions">
+      <button class="btn" id="graphics-continue">Continue to deployment</button>
+      <button class="btn ghost" id="graphics-cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div id="app"></div>
+
+<!-- crosshair / feedback -->
+<div id="dmg-vignette"></div>
+<div id="crosshair">
+  <div class="tick t"></div><div class="tick b"></div>
+  <div class="tick l"></div><div class="tick r"></div>
+</div>
+<div id="hitmarker"></div>
+
+<!-- ADS reticles — one per weapon type, faded in/out by adsBlend in the render loop -->
+<div id="ads-reddot"><div class="dot"></div></div>
+<div id="ads-shotgun-sight"><div class="ring"></div><div class="dot"></div></div>
+<div id="ads-scope">
+  <div class="scope-circle">
+    <div class="scope-line scope-h"></div>
+    <div class="scope-line scope-v"></div>
+    <div class="scope-dot"></div>
+    <div class="scope-tick scope-t1"></div><div class="scope-tick scope-t2"></div>
+    <div class="scope-tick scope-t3"></div><div class="scope-tick scope-t4"></div>
+  </div>
+</div>
+
+<!-- HUD -->
+<div id="top-bar" class="hud-font">
+  <div id="objective" class="hidden">Eliminate hostiles</div>
+  <div id="kill-count" class="hidden">0 <span style="color:var(--bone-dim); font-size:14px;">DOWNED</span></div>
+  <div id="wave-label">WAVE 01</div>
+  <div id="hostiles-label">5 <span>HOSTILES</span></div>
+  <div id="score-label">SCORE <span id="score-value">0</span></div>
+  <div id="streak-indicator" class="hidden">2x STREAK</div>
+</div>
+<div id="mute-btn" title="Mute/Unmute">🔊</div>
+
+<!-- wave / streak / score / level-up / elite feedback -->
+<div id="wave-banner" class="hud-font">
+  <div class="wb-title">WAVE 01</div>
+  <div class="wb-sub">5 HOSTILES</div>
+</div>
+<div id="streak-banner" class="hud-font"></div>
+<div id="score-popup" class="hud-font"><span class="sp-pts">+100</span><span class="sp-label">KILL</span></div>
+<div id="levelup-banner" class="hidden hud-font">
+  <div class="lu-title">LEVEL UP</div>
+  <div class="lu-level">LEVEL 02</div>
+</div>
+<div id="elite-warning" class="hud-font hidden">⚠ ELITE HOSTILE DETECTED</div>
+
+<div id="health-wrap">
+  <div id="health-icon">
+    <svg viewBox="0 0 24 24" fill="none"><path d="M12 21s-7-4.6-9.5-9.2C.6 8.1 2.4 4.5 6 4.5c2 0 3.4 1.1 4 2.2 0.6-1.1 2-2.2 4-2.2 3.6 0 5.4 3.6 3.5 7.3C19 16.4 12 21 12 21z" fill="#5fa8a0"/></svg>
+  </div>
+  <div>
+    <div id="health-bar-outer"><div id="health-bar-inner"></div></div>
+    <div id="health-num" class="hud-font">100 / 100</div>
+  </div>
+</div>
+
+<div id="ammo-wrap" class="hud-font">
+  <div id="weapon-name">Assault Rifle</div>
+  <div id="ammo-count">12<span> / 48</span></div>
+  <div id="reload-hint">RELOADING…</div>
+</div>
+
+<!-- main menu -->
+<div class="bulletfall-shell" id="main-menu">
+  <div class="scene" aria-hidden="true">
+    <div class="sun-glow"></div>
+    <div class="heli-glow"></div>
+    <div class="heli" aria-hidden="true">
+      <div class="heli-rotor-disc"></div>
+      <div class="heli-rotor-blade"></div>
+      <div class="heli-body"></div>
+      <div class="heli-cockpit"></div>
+      <div class="heli-tail"></div>
+      <div class="heli-tail-fin"></div>
+      <div class="heli-tail-rotor"></div>
+      <div class="heli-skid"></div>
+      <div class="heli-rope rope-1"><div class="rope-soldier"><div class="r-head"></div><div class="r-arm"></div><div class="r-body"></div></div></div>
+      <div class="heli-rope rope-2"><div class="rope-soldier"><div class="r-head"></div><div class="r-arm"></div><div class="r-body"></div></div></div>
+    </div>
+    <div class="haze haze-1"></div>
+    <div class="haze haze-2"></div>
+    <div class="canyon canyon-back"></div>
+    <div class="distant-explosion"></div>
+    <div class="distant-smoke"></div>
+    <div class="canyon canyon-mid"></div>
+    <div class="canyon canyon-front"></div>
+    <div class="outpost">
+      <div class="outpost-window w1"></div>
+      <div class="outpost-window w2"></div>
+      <div class="outpost-window w3"></div>
+    </div>
+    <div class="outpost-smoke"><span></span><span></span><span></span></div>
+    <div class="searchlight-pivot"><div class="searchlight-beam"></div></div>
+    <div class="ground-scorch"></div>
+    <div class="rubble"><span></span><span></span><span></span><span></span><span></span></div>
+    <div class="sandbag-bunker" aria-hidden="true">
+      <div class="sandbag b1"></div><div class="sandbag b2"></div><div class="sandbag b3"></div><div class="sandbag b4"></div><div class="sandbag b5"></div>
+      <div class="sandbag t1"></div><div class="sandbag t2"></div><div class="sandbag t3"></div><div class="sandbag t4"></div>
+    </div>
+    <div class="tank-wreck" aria-hidden="true">
+      <div class="tank-hull"></div>
+      <div class="tank-turret"></div>
+      <div class="tank-barrel"></div>
+      <div class="tank-smoke"><span></span><span></span><span></span><span></span></div>
+    </div>
+    <div class="standing-soldier" aria-hidden="true">
+      <div class="s-rifle"></div>
+      <div class="s-head"></div>
+      <div class="s-torso"></div>
+      <div class="s-legs"></div>
+    </div>
+    <div class="dust-particles" id="menu-dust"></div>
+    <div class="wind-dust"><span></span><span></span><span></span><span></span><span></span></div>
+    <div class="scanlines"></div>
+    <div class="vignette"></div>
+  </div>
+
+  <div class="tactical-reticle" aria-hidden="true"></div>
+  <div class="sound-chip"><span class="sound-bars"><i></i><i></i><i></i><i></i></span><span id="menu-audio-label">TACTICAL SCORE // READY</span></div>
+  <div class="menu-readout">FIELD LOG // 07<br><b>WIND</b> 14 KTS &nbsp; <b>VIS</b> 1.8 KM<br><b>COMMS</b> ENCRYPTED</div>
+  <div class="topbar">
+    <div class="brand-mark">Bullet<span class="fall-mark">fall</span></div>
+    <div class="connection-status"><span class="status-dot"></span>Systems Online</div>
+  </div>
+
+  <aside class="tactical-status">
+    <div class="status-label">Tactical Status</div>
+    <div class="status-row"><span>Sector</span><span>Dusk Canyon</span></div>
+    <div class="status-row"><span>Best Wave</span><span id="ts-best-wave">0</span></div>
+    <div class="status-row"><span>Best Score</span><span id="ts-best-score">0</span></div>
+  </aside>
+
+  <aside class="player-profile">
+    <div class="profile-label">Operator Profile</div>
+    <div class="profile-rank" id="menu-level">LEVEL 1</div>
+    <div class="profile-level" id="menu-xp-text">0 / 1000 XP</div>
+    <div class="profile-xp-bar"><div class="profile-xp-fill" id="menu-xp-fill"></div></div>
+  </aside>
+
+  <div class="combat-feed"><div class="feed-line" id="combat-feed-line">Hostiles reported in Dusk Canyon.</div></div>
+
+  <div class="hero-copy">
+    <h1>BULLET<span class="fall-mark">FALL</span></h1>
+    <p class="tagline">Survive. Adapt. Eliminate.<span class="cursor-blink">_</span></p>
+    <button class="play-button" id="menu-play-btn">Play <span class="arrow">&rarr;</span></button>
+    <p class="hint">Press Play to begin · use the speaker icon to mute</p>
+  </div>
+
+  <nav class="main-nav">
+    <button id="menu-play-btn-nav">01 Play</button>
+    <button id="menu-armory-btn">02 Armory</button>
+    <button id="menu-missions-btn">03 Missions</button>
+    <button id="menu-leaderboard-btn">04 Leaderboard</button>
+    <button id="menu-settings-btn">05 Settings</button>
+  </nav>
+
+  <div class="footer-hud">
+    <span>34.0522&deg; N, 118.2437&deg; W</span>
+    <span>Sector 7 &mdash; Dustfall Canyon</span>
+  </div>
+</div>
+
+<!-- armory -->
+<div class="bulletfall-shell hidden" id="armory-overlay">
+  <div class="scene" aria-hidden="true">
+    <div class="sun-glow"></div>
+    <div class="haze haze-1"></div>
+    <div class="haze haze-2"></div>
+    <div class="canyon canyon-back"></div>
+    <div class="canyon canyon-mid"></div>
+    <div class="canyon canyon-front"></div>
+    <div class="outpost"></div>
+    <div class="dust-particles" id="armory-dust"></div>
+    <div class="scanlines"></div>
+    <div class="vignette"></div>
+  </div>
+  <div class="panel-view">
+    <div class="panel-title">Armory</div>
+    <div id="armory-cards"></div>
+    <button class="panel-back" id="armory-back-btn">Back</button>
+  </div>
+</div>
+
+<!-- daily missions -->
+<div class="bulletfall-shell hidden" id="missions-overlay">
+  <div class="scene" aria-hidden="true">
+    <div class="sun-glow"></div>
+    <div class="haze haze-1"></div>
+    <div class="haze haze-2"></div>
+    <div class="canyon canyon-back"></div>
+    <div class="canyon canyon-mid"></div>
+    <div class="canyon canyon-front"></div>
+    <div class="outpost"></div>
+    <div class="dust-particles" id="missions-dust"></div>
+    <div class="scanlines"></div>
+    <div class="vignette"></div>
+  </div>
+  <div class="panel-view">
+    <div class="panel-title">Daily Missions</div>
+    <div id="missions-list"></div>
+    <button class="panel-back" id="missions-back-btn">Back</button>
+  </div>
+</div>
+
+<!-- personal bests -->
+<div class="bulletfall-shell hidden" id="leaderboard-overlay">
+  <div class="scene" aria-hidden="true">
+    <div class="sun-glow"></div>
+    <div class="haze haze-1"></div>
+    <div class="haze haze-2"></div>
+    <div class="canyon canyon-back"></div>
+    <div class="canyon canyon-mid"></div>
+    <div class="canyon canyon-front"></div>
+    <div class="outpost"></div>
+    <div class="dust-particles" id="leaderboard-dust"></div>
+    <div class="scanlines"></div>
+    <div class="vignette"></div>
+  </div>
+  <div class="panel-view">
+    <div class="panel-title">Personal Best</div>
+    <div id="leaderboard-list"></div>
+    <button class="panel-back" id="leaderboard-back-btn">Back</button>
+  </div>
+</div>
+
+<!-- settings -->
+<div class="bulletfall-shell hidden" id="settings-overlay">
+  <div class="scene" aria-hidden="true">
+    <div class="sun-glow"></div>
+    <div class="haze haze-1"></div>
+    <div class="haze haze-2"></div>
+    <div class="canyon canyon-back"></div>
+    <div class="canyon canyon-mid"></div>
+    <div class="canyon canyon-front"></div>
+    <div class="outpost"></div>
+    <div class="dust-particles" id="settings-dust"></div>
+    <div class="scanlines"></div>
+    <div class="vignette"></div>
+  </div>
+  <div class="panel-view">
+    <div class="panel-title">Settings</div>
+    <div id="settings-list">
+      <div class="settings-row">
+        <div class="deploy-label">Sound Effects</div>
+        <button class="panel-back" id="settings-mute-btn">Mute / Unmute</button>
+      </div>
+      <div class="settings-row">
+        <div class="deploy-label">Menu Music</div>
+        <button class="panel-back" id="settings-music-btn">Music: ON</button>
+      </div>
+      <div class="settings-row">
+        <div class="deploy-label">Sensitivity</div>
+        <div class="settings-slider-wrap">
+          <input type="range" id="settings-sens-slider" class="settings-slider" min="0.3" max="3" step="0.05" value="1">
+          <span class="settings-slider-val" id="settings-sens-val">1.00&times;</span>
+        </div>
+      </div>
+      <div class="settings-row">
+        <div class="deploy-label">Field of View</div>
+        <div class="settings-slider-wrap">
+          <input type="range" id="settings-fov-slider" class="settings-slider" min="60" max="100" step="1" value="75">
+          <span class="settings-slider-val" id="settings-fov-val">75&deg;</span>
+        </div>
+      </div>
+      <div class="settings-row">
+        <div class="deploy-label">Weapon Skin</div>
+        <div id="skin-swatches"></div>
+      </div>
+      <div class="settings-row" style="font-size:10px;color:#6b6459;letter-spacing:.04em;text-transform:none;">
+        <div>Model credit</div>
+        <div>"Ak47" by kursat_sokmen (CC BY 4.0)</div>
+      </div>
+    </div>
+    <button class="panel-back" id="settings-back-btn">Back</button>
+  </div>
+</div>
+
+<!-- start overlay -->
+<div class="bulletfall-shell hidden" id="start-overlay">
+  <div class="scene" aria-hidden="true">
+    <div class="sun-glow"></div>
+    <div class="haze haze-1"></div>
+    <div class="haze haze-2"></div>
+    <div class="canyon canyon-back"></div>
+    <div class="canyon canyon-mid"></div>
+    <div class="canyon canyon-front"></div>
+    <div class="outpost"></div>
+    <div class="dust-particles" id="briefing-dust"></div>
+    <div class="scanlines"></div>
+    <div class="vignette"></div>
+  </div>
+
+  <div class="topbar">
+    <div class="brand-mark">Bullet<span class="fall-mark">fall</span></div>
+    <div class="connection-status"><span class="status-dot"></span>Mission Briefing</div>
+  </div>
+
+  <div class="briefing-layout">
+    <div class="briefing-kicker">Operation</div>
+    <h2 class="briefing-op-name">Dustfall</h2>
+
+    <div class="briefing-stat-row">
+      <div><div class="b-label">Environment</div><div class="b-value" id="briefing-env">Dustline Canyon</div></div>
+      <div><div class="b-label">Hostiles</div><div class="b-value" id="briefing-hostiles">5</div></div>
+      <div><div class="b-label">Threat</div><div class="b-value threat-high" id="briefing-threat">High</div></div>
+    </div>
+
+    <div class="briefing-section-label">Select Arena</div>
+    <div id="theme-swatches" class="map-grid"></div>
+
+    <div class="briefing-section-label">Weather Conditions</div>
+    <div id="weather-toggle">
+      <button type="button" class="weather-btn selected" data-weather="clear">Clear</button>
+      <button type="button" class="weather-btn" data-weather="storm">Storm</button>
+    </div>
+
+    <div class="briefing-actions">
+      <div id="loading-block">
+        <div id="loading-status">Initializing combat simulation</div>
+        <div id="loading-bar"><div id="loading-bar-fill"></div></div>
+      </div>
+      <button class="btn hidden" id="start-btn">Deploy</button>
+      <button class="btn ghost" id="briefing-back-btn">Back</button>
+    </div>
+
+    <div class="controls-legend" id="desktop-legend">
+      <div><b>WASD</b>Move</div>
+      <div><b>Mouse</b>Look</div>
+      <div><b>Click</b>Fire</div>
+      <div><b>Space</b>Jump</div>
+      <div><b>R</b>Reload</div>
+      <div><b>Right-click</b>Aim</div>
+      <div><b>1-3</b>Weapon</div>
+      <div><b>Shift</b>Sprint</div>
+      <div><b>Esc</b>Pause</div>
+    </div>
+  </div>
+</div>
+
+<!-- death overlay -->
+<div class="bulletfall-shell hidden" id="death-overlay">
+  <div class="scene" aria-hidden="true">
+    <div class="sun-glow"></div>
+    <div class="haze haze-1"></div>
+    <div class="haze haze-2"></div>
+    <div class="canyon canyon-back"></div>
+    <div class="canyon canyon-mid"></div>
+    <div class="canyon canyon-front"></div>
+    <div class="outpost"></div>
+    <div class="dust-particles" id="death-dust"></div>
+    <div class="scanlines"></div>
+    <div class="vignette"></div>
+  </div>
+  <div class="panel-view">
+    <div class="panel-kicker">Mission Report</div>
+    <h1 class="panel-headline"><span class="accent">Mission Failed</span></h1>
+    <div id="death-stats">
+      <div><div class="val" id="stat-score">0</div><div class="lab">Final Score</div></div>
+      <div><div class="val" id="stat-wave">01</div><div class="lab">Wave Reached</div></div>
+      <div><div class="val" id="stat-kills">0</div><div class="lab">Kills</div></div>
+      <div><div class="val" id="stat-headshots">0</div><div class="lab">Headshots</div></div>
+      <div><div class="val" id="stat-acc">0%</div><div class="lab">Accuracy</div></div>
+      <div><div class="val" id="stat-time">0:00</div><div class="lab">Survived</div></div>
+      <div><div class="val" id="stat-streak">0</div><div class="lab">Best Streak</div></div>
+      <div><div class="val" id="stat-xp">+0</div><div class="lab">XP Earned</div></div>
+    </div>
+    <div class="panel-actions">
+      <button class="play-button" id="respawn-btn">Redeploy <span class="arrow">&rarr;</span></button>
+      <button class="panel-back" id="death-menu-btn">Main Menu</button>
+    </div>
+  </div>
+</div>
+
+<!-- pause overlay -->
+<div class="bulletfall-shell hidden" id="pause-overlay">
+  <div class="scene" aria-hidden="true">
+    <div class="sun-glow"></div>
+    <div class="haze haze-1"></div>
+    <div class="haze haze-2"></div>
+    <div class="canyon canyon-back"></div>
+    <div class="canyon canyon-mid"></div>
+    <div class="canyon canyon-front"></div>
+    <div class="outpost"></div>
+    <div class="dust-particles" id="pause-dust"></div>
+    <div class="scanlines"></div>
+    <div class="vignette"></div>
+  </div>
+  <div class="panel-view">
+    <div id="pause-main">
+      <div class="panel-kicker">Operation Paused</div>
+      <h1 class="panel-headline">PAUSED</h1>
+      <p class="panel-sub">Take a breath. The fight will still be here.</p>
+      <div class="panel-actions">
+        <button class="play-button" id="resume-btn">Resume <span class="arrow">&rarr;</span></button>
+        <button class="panel-back" id="pause-controls-btn">Controls</button>
+        <button class="panel-back" id="pause-menu-btn">Main Menu</button>
+      </div>
+    </div>
+    <div id="pause-controls" class="hidden">
+      <div class="panel-kicker">Field Manual</div>
+      <h1 class="panel-headline">CONTROLS</h1>
+      <div class="controls-legend">
+        <div><b>WASD</b>Move</div>
+        <div><b>Mouse</b>Look</div>
+        <div><b>Click</b>Fire</div>
+        <div><b>Space</b>Jump</div>
+        <div><b>R</b>Reload</div>
+        <div><b>Right-click</b>Aim</div>
+        <div><b>1-3</b>Weapon</div>
+        <div><b>Shift</b>Sprint</div>
+        <div><b>Esc</b>Pause</div>
+      </div>
+      <button class="panel-back" id="pause-controls-back-btn">Back</button>
+    </div>
+  </div>
+</div>
+
+<!-- mobile controls -->
+<div id="mobile-controls">
+  <div id="joy-zone">
+    <div id="joy-base"><div id="joy-stick"></div></div>
+  </div>
+  <div id="look-zone"></div>
+  <div class="m-btn" id="btn-jump">JUMP</div>
+  <div class="m-btn" id="btn-reload">RELOAD</div>
+  <div class="m-btn" id="btn-weapon">SWAP</div>
+  <div class="m-btn" id="btn-shoot">FIRE</div>
+</div>
+
+<div id="load-error" class="hidden" style="position:fixed;inset:0;z-index:99;background:#150f0b;color:#f1e9dd;display:flex;align-items:center;justify-content:center;text-align:center;padding:24px;font-family:sans-serif;">
+  <div style="max-width:480px;">
+    <h2 style="color:#ff6b35;">Couldn't load the 3D engine</h2>
+    <p id="load-error-msg" style="color:#a89f92;font-size:14px;"></p>
+    <p style="color:#a89f92;font-size:13px;">This usually means the browser blocked the Three.js CDN script — try a different browser, disable any script blockers, or check your connection.</p>
+  </div>
+</div>
+
+
+<script src="js/error-handler.js"></script>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.js"></script>
+<!-- GLTFLoader (three-gltf-loader v1.111.0, MIT License, https://github.com/johh/three-gltf-loader) patched to attach THREE.GLTFLoader as a global instead of CommonJS export, so it works with the plain script-tag build of three.js r128 above. -->
+<script src="js/gltf-loader.js"></script>
+
+<!-- First-person arms + AK47 model: assets/ak47.glb (glTF binary). "Ak47" by kursat_sokmen (https://skfb.ly/6UEL9), CC BY 4.0. Fetched and parsed at runtime by js/game.js. -->
+<script src="js/game.js"></script>
+</body>
+</html>
