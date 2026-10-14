@@ -19,22 +19,28 @@ then open `http://localhost:8080` in your browser.
 ## Project structure
 
 ```
-index.html          # page shell — markup only, loads everything else
-css/style.css        # all styling (HUD, menus, overlays)
-js/error-handler.js   # top-level error banner
-js/gltf-loader.js     # patched THREE.GLTFLoader (three-gltf-loader v1.111.0, adapted for r128's global/non-module build)
-js/game.js            # the game itself — scene setup, weapons, enemies, waves, input, HUD
-assets/ak47.glb       # rigged first-person AK47 + hands model, fetched and parsed at startup
+index.html             # page shell — markup only, loads everything else
+css/style.css           # all styling (HUD, menus, overlays)
+js/error-handler.js      # top-level error banner
+js/gltf-loader.js        # patched THREE.GLTFLoader (three-gltf-loader v1.111.0, adapted for r128's global/non-module build)
+js/game.js               # the game itself — scene setup, weapons, enemies, waves, input, HUD
+assets/ak47.glb          # rigged first-person AK47 + hands model, fetched and parsed at startup
+assets/shotgun_real.glb  # static Remington 870 MCS model, swapped in over the procedural shotgun body
+assets/lmg_real.glb      # static Browning M2 model, swapped in over the procedural LMG body
 ```
 
-This used to be one single ~18.8MB HTML file with the AK47 model embedded inline as a base64 string. It's now split into normal files, with the model as its own binary asset (`assets/ak47.glb`, ~13.8MB — base64 always inflates binary size by about a third, so this is smaller too), so the repo reads and diffs like a normal web project instead of one giant blob.
+This used to be one single ~18.8MB HTML file with the AK47 model embedded inline as a base64 string. It's now split into normal files, with models as their own binary assets (fetched at runtime instead of base64-baked into the page — base64 always inflates binary size by about a third, so this is smaller too), so the repo reads and diffs like a normal web project instead of one giant blob.
 
 ## Weapons
 
-Only the assault rifle currently uses the real scanned model (hands + gun body, with idle/fire/reload animation clips). The shotgun, sniper, SMG and LMG use procedural (primitively-modeled) arms and gun bodies — giving each of them a matching real/rigged model the way the AK47 has one is a natural next step, but needs a model to actually source or make for each; none is embedded yet.
+- **Assault rifle** — the real scanned AK47 model: rigged hands + gun body, with idle/fire/reload animation clips.
+- **Shotgun** and **LMG** — real static gun meshes (Remington 870 MCS, Browning M2) swapped in over where the procedural box-and-cylinder body used to sit. These aren't rigged/animated like the AK47 — just a nicer-looking mesh held by the same procedural arms every other weapon uses. Swapping in a real mesh this way (rather than reusing the AK47 rig's animated bones) is deliberately low-risk: see the comment above `REAL_HANDS_WEAPONS` in `js/game.js` for why bone-sharing across weapons was tried and abandoned.
+- **Sniper** and **SMG** — still fully procedural; no real model sourced for these yet (Sketchfab didn't have a free-download option for the ones found, only preview-only listings).
+- **LMG specifically** is "deployed" rather than carried: equipping it (`5`) locks player movement and jumping in place (bipod down), dips the view slightly, and tightens bullet spread — meant to feel like setting up a braced gun position rather than just holding a bigger rifle. Switching to any other weapon un-deploys it instantly.
 
 ## Credits
 
 - "Ak47" first-person rigged model by kursat_sokmen (https://skfb.ly/6UEL9), licensed CC BY 4.0.
+- "870 MCS Shotgun" and "Low Poly Browning M2E2" via Sketchfab — **attribution still needs confirming**: fill in the actual creator usernames and licenses here from each model's Sketchfab page before relying on this repo's compliance with their license terms.
 - Three.js r128, MIT License.
 - GLTFLoader adapted from three-gltf-loader v1.111.0 by Rich Tibbett / mrdoob, MIT License.

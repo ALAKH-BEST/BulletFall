@@ -2585,6 +2585,80 @@ function updatePrimitiveArmsVisibility() {
         'serve it over HTTP instead (see README.md).', err);
     });
 })();
+
+/* ============================================================
+   REAL STATIC WEAPON MODELS — shotgun + LMG
+   Unlike the AK47 above, these are plain static meshes (no skin, no rig,
+   no baked animation) — real-world gun scans (Remington 870 MCS, Browning
+   M2) pulled in to replace the procedural box-and-cylinder gun bodies with
+   something that actually looks like the weapon. Because they're static,
+   none of the bone-attach/frustum-culling trouble the AK47 rig caused
+   applies here: each one is just swapped in as an ordinary child of the
+   existing weaponModels group, in exactly the spot the procedural body
+   used to occupy, so every bit of per-weapon logic that already works
+   (visibility toggling on weapon switch, the pump/mag-drop animation refs,
+   primitive arms holding it) keeps working unchanged.
+   Credits: "870 MCS Shotgun" and "Low Poly Browning M2E2", both via
+   Sketchfab — see README.md for exact attribution once confirmed.
+   ============================================================ */
+function loadRealStaticGunBody(weaponKey, url, fit) {
+  if (typeof THREE.GLTFLoader !== 'function') return;
+  const g = weaponModels[weaponKey];
+  if (!g) return;
+  fetch(url)
+    .then((res) => { if (!res.ok) throw new Error('HTTP ' + res.status); return res.arrayBuffer(); })
+    .then((buffer) => new Promise((resolve, reject) => {
+      new THREE.GLTFLoader().parse(buffer, '', resolve, reject);
+    }))
+    .then((gltf) => {
+      const model = gltf.scene;
+      // The shotgun source file bakes two full copies of the gun side by side
+      // (every part duplicated as a Blender-style ".001"/".002"-suffixed
+      // sibling — likely two display states exported together). This loader's
+      // GLTFLoader strips the dot from those suffixes when it names the
+      // THREE.js nodes (so "Barrel_low.004" becomes "Barrel_low004"), which a
+      // dot-anchored regex would miss — matched here by the trailing digits
+      // alone instead. The LMG file doesn't have this problem (checked: 0
+      // duplicates), so this is a no-op for it.
+      let container = model;
+      while (container.children.length === 1) container = container.children[0];
+      const seenBase = new Set();
+      const dupes = [];
+      container.children.forEach((child) => {
+        const base = child.name.replace(/\.?\d{3}$/, '');
+        if (seenBase.has(base)) dupes.push(child); else seenBase.add(base);
+      });
+      dupes.forEach((c) => container.remove(c));
+      // Hide (not remove) the procedural parts — g.pumpPart/g.magPart etc. are
+      // still referenced by the per-frame fire/reload animation code, and
+      // letting that code keep nudging an invisible mesh around is harmless,
+      // whereas ripping those children out risks breaking that code.
+      g.children.slice().forEach((child) => { child.visible = false; });
+      model.traverse((child) => {
+        if (child.isMesh) { child.castShadow = true; child.receiveShadow = false; child.frustumCulled = false; }
+      });
+      // Center the model on its own bounding box, then apply the per-weapon
+      // scale/position/rotation that lines it up where the procedural body
+      // used to sit (tuned by eye against the actual viewmodel — these
+      // exports come in at an arbitrary real-world scale/orientation, not
+      // the game's small hand-held-sized local space).
+      const box = new THREE.Box3().setFromObject(model);
+      const center = box.getCenter(new THREE.Vector3());
+      model.position.sub(center);
+      const wrapper = new THREE.Group();
+      wrapper.add(model);
+      wrapper.scale.setScalar(fit.scale);
+      wrapper.position.set(fit.x, fit.y, fit.z);
+      wrapper.rotation.set(fit.rx || 0, fit.ry || 0, fit.rz || 0);
+      g.add(wrapper);
+    })
+    .catch((err) => {
+      console.warn('Real ' + weaponKey + ' model: failed to load ' + url + ', keeping procedural fallback.', err);
+    });
+}
+loadRealStaticGunBody('shotgun', 'assets/shotgun_real.glb', { scale: 0.0044, x: 0.16, y: -0.17, z: -0.42, ry: Math.PI / 2 });
+loadRealStaticGunBody('lmg', 'assets/lmg_real.glb', { scale: 0.11, x: 0.16, y: -0.12, z: -0.48, ry: -Math.PI / 2 });
+
 // Shared rig actions — despite the name, these drive the one scanned rig's
 // idle/fire/reload clips and are reused by every weapon in REAL_HANDS_WEAPONS,
 // not just the assault rifle (see playRigFire/playRigReload below).
@@ -3342,6 +3416,12 @@ const weaponsState = {};
 Object.keys(WEAPON_DEFS).forEach((k) => { weaponsState[k] = makeWeaponState(k); });
 let currentWeaponKey = 'assault';
 let weapon = weaponsState[currentWeaponKey];
+// The LMG is heavy enough that it isn't carried and fired on the move like
+// every other weapon — equipping it plants the player in place (bipod down,
+// the "whole machine gun setup" rather than just a gun in your hands), which
+// is both more believable and a natural bipod-steadiness bonus. See its use
+// in the movement update and in the fire spread calculation below.
+let lmgDeployed = false;
 
 function switchWeapon(key) {
   if (!Input.gameActive || key === currentWeaponKey || !weaponsState[key]) return;
@@ -3349,6 +3429,7 @@ function switchWeapon(key) {
   document.getElementById('reload-hint').classList.remove('show');
   currentWeaponKey = key;
   weapon = weaponsState[key];
+  lmgDeployed = (key === 'lmg');
   Object.keys(weaponModels).forEach(k => { weaponModels[k].visible = (k === key); });
   updatePrimitiveArmsVisibility();
   if (realAssaultActions && realAssaultActions.idle) { realAssaultActions.idle.reset().play(); }
@@ -3390,10 +3471,13 @@ function tryShoot() {
   const ZONE_MULT = { head: 2.0, torso: 1.0, legs: 0.6 };
   const targets = [...envMeshes, ...bots.filter(b => b.alive).flatMap(b => b.hitboxes)];
   let anyBotHit = false, anyHeadshot = false;
+  // Bipod steadiness: planted and braced beats held-up-by-arms for a gun this
+  // heavy, so the LMG shoots noticeably tighter while deployed.
+  const effSpread = lmgDeployed ? weapon.spread * 0.45 : weapon.spread;
   for (let p = 0; p < weapon.pellets; p++) {
     const dir = baseDir.clone();
-    dir.x += (Math.random() - 0.5) * weapon.spread;
-    dir.y += (Math.random() - 0.5) * weapon.spread;
+    dir.x += (Math.random() - 0.5) * effSpread;
+    dir.y += (Math.random() - 0.5) * effSpread;
     dir.normalize();
     raycaster.set(origin, dir);
     const hitsArr = raycaster.intersectObjects(targets, false);
@@ -4018,7 +4102,7 @@ function updateHealthHUD() {
   document.getElementById('dmg-vignette').classList.toggle('low-health', player.health > 0 && player.health / player.maxHealth < 0.3);
 }
 function updateAmmoHUD() {
-  document.getElementById('weapon-name').textContent = weapon.name;
+  document.getElementById('weapon-name').textContent = weapon.name + (lmgDeployed ? ' — DEPLOYED' : '');
   document.getElementById('ammo-count').innerHTML = `${weapon.mag}<span> / ${weapon.reserve}</span>`;
 }
 function updateKillHUD() {
@@ -4190,6 +4274,7 @@ function startGame() {
   document.getElementById('reload-hint').classList.remove('show');
   currentWeaponKey = 'assault';
   weapon = weaponsState.assault;
+  lmgDeployed = false;
   Object.keys(weaponModels).forEach((k) => { weaponModels[k].visible = (k === currentWeaponKey); });
   updatePrimitiveArmsVisibility();
   muzzleFlash.position.copy(weapon.muzzleOffset);
@@ -4290,7 +4375,7 @@ function animate() {
     Input.yawDelta = 0; Input.pitchDelta = 0;
 
     // movement
-    const isSprinting = !isTouch && Input.sprintHeld && Input.move.z > 0.3 && !weapon.reloading && player.grounded;
+    const isSprinting = !isTouch && Input.sprintHeld && Input.move.z > 0.3 && !weapon.reloading && player.grounded && !lmgDeployed;
     player.sprinting = isSprinting;
     const speed = CFG.playerSpeed * (isSprinting ? 1.55 : 1);
     const forward = new THREE.Vector3(-Math.sin(yawObject.rotation.y), 0, -Math.cos(yawObject.rotation.y));
@@ -4299,6 +4384,11 @@ function animate() {
     moveDir.addScaledVector(forward, Input.move.z);
     moveDir.addScaledVector(right, Input.move.x);
     if (moveDir.lengthSq() > 0) moveDir.normalize();
+    // Bipod's down — the LMG is set up in place, not carried, so WASD stops
+    // repositioning the player entirely while it's equipped (look/aim still
+    // free). moveDir.lengthSq() reading 0 from here on also naturally turns
+    // off the view-bob and footstep sounds below, for free.
+    if (lmgDeployed) moveDir.set(0, 0, 0);
 
     player.pos.x += moveDir.x * speed * dt;
     player.pos.z += moveDir.z * speed * dt;
@@ -4306,7 +4396,7 @@ function animate() {
 
     // gravity / jump
     const wasGrounded = player.grounded;
-    if (Input.jumpQueued && player.grounded) { player.velY = CFG.jumpSpeed; player.grounded = false; sfxJump(); }
+    if (Input.jumpQueued && player.grounded && !lmgDeployed) { player.velY = CFG.jumpSpeed; player.grounded = false; sfxJump(); }
     Input.jumpQueued = false;
     player.velY += CFG.gravity * dt;
     player.pos.y += player.velY * dt;
@@ -4327,7 +4417,11 @@ function animate() {
     }
 
     gunFeel.landCompress *= Math.max(0, 1 - dt * 10);
-    yawObject.position.set(player.pos.x, player.pos.y + CFG.eyeHeight + bobAmt - gunFeel.landCompress, player.pos.z);
+    // Settle slightly lower when the LMG is deployed — braced/crouched behind
+    // the gun rather than standing tall holding it, the visual half of
+    // "planted in place" alongside the movement lock above.
+    const deployedDip = lmgDeployed ? 0.12 : 0;
+    yawObject.position.set(player.pos.x, player.pos.y + CFG.eyeHeight + bobAmt - gunFeel.landCompress - deployedDip, player.pos.z);
 
     // recoil recovery
     player.recoil *= Math.max(0, 1 - dt * weapon.recoilDecayRate);
