@@ -42,6 +42,6 @@ This used to be one single ~18.8MB HTML file with the AK47 model embedded inline
 
 - "Ak47" first-person rigged model by kursat_sokmen (https://skfb.ly/6UEL9), licensed CC BY 4.0.
 - "Low-Poly Browning M2E2" by Kaan (https://skfb.ly/ovSrR), licensed CC Attribution 4.0 (http://creativecommons.org/licenses/by/4.0/).
-- "870 MCS Shotgun" via Sketchfab, licensed CC Attribution — **creator username and model link still needed**: both are on the model's Sketchfab page near the title, above the download panel.
+- "870 MCS Shotgun" by FelipeMSX (https://sketchfab.com/3d-models/870-mcs-shotgun-8fa7d482920e4eda8648766fb38596c0), licensed CC Attribution.
 - Three.js r128, MIT License.
 - GLTFLoader adapted from three-gltf-loader v1.111.0 by Rich Tibbett / mrdoob, MIT License.
