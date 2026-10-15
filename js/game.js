@@ -2680,11 +2680,18 @@ function loadRealStaticGunBody(weaponKey, url, fit) {
 // needing to prove the theory — worst case it's merely unnecessary, not
 // harmful. If this still breaks, that fact alone (parallel loading uninvolved)
 // strongly points at something intrinsic to one of the two static models.
-loadRealAssaultModel().then(() => {
-  return loadRealStaticGunBody('shotgun', 'assets/shotgun_real.glb', { scale: 0.0044, x: 0.16, y: -0.17, z: -0.42, ry: Math.PI / 2 });
-}).then(() => {
-  return loadRealStaticGunBody('lmg', 'assets/lmg_real.glb', { scale: 0.11, x: 0.16, y: -0.12, z: -0.48, ry: -Math.PI / 2 });
-});
+//
+// Disabled again: the sequential-loading fix above did not resolve it — the
+// player still saw errors with both real models enabled. Going back to the
+// one confirmed-stable state (AK47 only) rather than leave the live game
+// broken. The two calls and the loader function above are left in place,
+// untouched, for whenever this gets picked back up.
+loadRealAssaultModel();
+// loadRealAssaultModel().then(() => {
+//   return loadRealStaticGunBody('shotgun', 'assets/shotgun_real.glb', { scale: 0.0044, x: 0.16, y: -0.17, z: -0.42, ry: Math.PI / 2 });
+// }).then(() => {
+//   return loadRealStaticGunBody('lmg', 'assets/lmg_real.glb', { scale: 0.11, x: 0.16, y: -0.12, z: -0.48, ry: -Math.PI / 2 });
+// });
 
 // Shared rig actions — despite the name, these drive the one scanned rig's
 // idle/fire/reload clips and are reused by every weapon in REAL_HANDS_WEAPONS,
