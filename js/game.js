@@ -2518,8 +2518,8 @@ function updatePrimitiveArmsVisibility() {
   // arms, just inverted.
   if (realHandsGroup) realHandsGroup.visible = useRealHands;
 }
-(function loadRealAssaultModel() {
-  if (typeof THREE.GLTFLoader !== 'function') return;
+function loadRealAssaultModel() {
+  if (typeof THREE.GLTFLoader !== 'function') return Promise.resolve();
   // Previously this model shipped as an ~18MB base64 string baked directly
   // into the HTML (atob'd into bytes at startup). Moving to a GitHub repo
   // meant splitting the game into real files instead of one huge HTML blob,
@@ -2528,12 +2528,16 @@ function updatePrimitiveArmsVisibility() {
   // is fetched like any other asset. fetch() of a local file needs an actual
   // HTTP server (file:// URLs block this via CORS) — see the README for how
   // to run one; GitHub Pages serves it correctly with no setup.
-  fetch('assets/ak47.glb')
+  // Returns a promise that resolves once this is done (success OR failure) —
+  // used below to make sure the shotgun/LMG real models only start
+  // downloading after this one (by far the biggest asset) is fully settled,
+  // instead of all three competing for bandwidth/memory at once on page load.
+  return fetch('assets/ak47.glb')
     .then((res) => {
       if (!res.ok) throw new Error('HTTP ' + res.status);
       return res.arrayBuffer();
     })
-    .then((buffer) => {
+    .then((buffer) => new Promise((resolveOuter) => {
       new THREE.GLTFLoader().parse(buffer, '', (gltf) => {
     const realGroup = new THREE.Group();
     const model = gltf.scene;
@@ -2575,16 +2579,18 @@ function updatePrimitiveArmsVisibility() {
 
     Object.keys(weaponModels).forEach((k) => { weaponModels[k].visible = (k === currentWeaponKey); });
     updatePrimitiveArmsVisibility(); // sets both primitiveArmsGroup and realHandsGroup visibility correctly for whichever weapon is currently equipped
+        resolveOuter();
       }, (err) => {
-        console.warn('AK47 model: failed to parse, keeping procedural fallback.', err);
+        console.error('AK47 model: failed to parse, keeping procedural fallback.', err);
+        resolveOuter();
       });
-    })
+    }))
     .catch((err) => {
-      console.warn('AK47 model: failed to fetch assets/ak47.glb, keeping procedural fallback. ' +
+      console.error('AK47 model: failed to fetch assets/ak47.glb, keeping procedural fallback. ' +
         'If you opened this file directly (file://), browsers block fetch() of local files — ' +
         'serve it over HTTP instead (see README.md).', err);
     });
-})();
+}
 
 /* ============================================================
    REAL STATIC WEAPON MODELS — shotgun + LMG
@@ -2602,10 +2608,10 @@ function updatePrimitiveArmsVisibility() {
    Sketchfab — see README.md for exact attribution once confirmed.
    ============================================================ */
 function loadRealStaticGunBody(weaponKey, url, fit) {
-  if (typeof THREE.GLTFLoader !== 'function') return;
+  if (typeof THREE.GLTFLoader !== 'function') return Promise.resolve();
   const g = weaponModels[weaponKey];
-  if (!g) return;
-  fetch(url)
+  if (!g) return Promise.resolve();
+  return fetch(url)
     .then((res) => { if (!res.ok) throw new Error('HTTP ' + res.status); return res.arrayBuffer(); })
     .then((buffer) => new Promise((resolve, reject) => {
       new THREE.GLTFLoader().parse(buffer, '', resolve, reject);
@@ -2653,18 +2659,32 @@ function loadRealStaticGunBody(weaponKey, url, fit) {
       g.add(wrapper);
     })
     .catch((err) => {
-      console.warn('Real ' + weaponKey + ' model: failed to load ' + url + ', keeping procedural fallback.', err);
+      // console.error (not warn) so this isn't silently hidden by a devtools
+      // console filter set to "Errors" only — a real possibility given a
+      // previous report of "no console errors" that this code's old
+      // console.warn calls wouldn't have shown up under.
+      console.error('Real ' + weaponKey + ' model: failed to load ' + url + ', keeping procedural fallback.', err);
     });
 }
-// Temporarily disabled: a player reported the AK47 (previously working fine)
-// breaking after these two were added — no console error, survived a hard
-// refresh, and I can't reproduce it in headless testing here. Rather than
-// guess blind a third time on a problem my testing can't see (same situation
-// as the earlier bone-reuse saga), pulling both back out to confirm the
-// AK47-only state is solid again, then re-adding one at a time so if
-// something breaks again it's obvious which asset did it.
-// loadRealStaticGunBody('shotgun', 'assets/shotgun_real.glb', { scale: 0.0044, x: 0.16, y: -0.17, z: -0.42, ry: Math.PI / 2 });
-// loadRealStaticGunBody('lmg', 'assets/lmg_real.glb', { scale: 0.11, x: 0.16, y: -0.12, z: -0.48, ry: -Math.PI / 2 });
+// Re-enabled, but no longer fired in parallel with the AK47 load. Previously
+// all three fetches (AK47 ~13.8MB, shotgun ~6.8MB, LMG ~2MB — ~22.6MB total)
+// kicked off at once on page load; a player reported the AK47 breaking (and
+// the shotgun not appearing) only after these two were added, which this
+// sandbox's headless/software-rendered testing was never able to reproduce.
+// The leading theory, since it fits every known fact (no console error, no
+// repro on a fast dev machine, the texture-free LMG was the only one of the
+// three still working): real-hardware bandwidth/memory contention from three
+// large concurrent downloads+parses on page load. Loading the AK47 first and
+// only starting the shotgun once it's fully settled (success OR failure),
+// then the LMG once the shotgun is settled, removes that contention without
+// needing to prove the theory — worst case it's merely unnecessary, not
+// harmful. If this still breaks, that fact alone (parallel loading uninvolved)
+// strongly points at something intrinsic to one of the two static models.
+loadRealAssaultModel().then(() => {
+  return loadRealStaticGunBody('shotgun', 'assets/shotgun_real.glb', { scale: 0.0044, x: 0.16, y: -0.17, z: -0.42, ry: Math.PI / 2 });
+}).then(() => {
+  return loadRealStaticGunBody('lmg', 'assets/lmg_real.glb', { scale: 0.11, x: 0.16, y: -0.12, z: -0.48, ry: -Math.PI / 2 });
+});
 
 // Shared rig actions — despite the name, these drive the one scanned rig's
 // idle/fire/reload clips and are reused by every weapon in REAL_HANDS_WEAPONS,
