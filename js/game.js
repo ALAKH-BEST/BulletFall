@@ -2656,8 +2656,15 @@ function loadRealStaticGunBody(weaponKey, url, fit) {
       console.warn('Real ' + weaponKey + ' model: failed to load ' + url + ', keeping procedural fallback.', err);
     });
 }
-loadRealStaticGunBody('shotgun', 'assets/shotgun_real.glb', { scale: 0.0044, x: 0.16, y: -0.17, z: -0.42, ry: Math.PI / 2 });
-loadRealStaticGunBody('lmg', 'assets/lmg_real.glb', { scale: 0.11, x: 0.16, y: -0.12, z: -0.48, ry: -Math.PI / 2 });
+// Temporarily disabled: a player reported the AK47 (previously working fine)
+// breaking after these two were added — no console error, survived a hard
+// refresh, and I can't reproduce it in headless testing here. Rather than
+// guess blind a third time on a problem my testing can't see (same situation
+// as the earlier bone-reuse saga), pulling both back out to confirm the
+// AK47-only state is solid again, then re-adding one at a time so if
+// something breaks again it's obvious which asset did it.
+// loadRealStaticGunBody('shotgun', 'assets/shotgun_real.glb', { scale: 0.0044, x: 0.16, y: -0.17, z: -0.42, ry: Math.PI / 2 });
+// loadRealStaticGunBody('lmg', 'assets/lmg_real.glb', { scale: 0.11, x: 0.16, y: -0.12, z: -0.48, ry: -Math.PI / 2 });
 
 // Shared rig actions — despite the name, these drive the one scanned rig's
 // idle/fire/reload clips and are reused by every weapon in REAL_HANDS_WEAPONS,
