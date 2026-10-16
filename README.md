@@ -38,6 +38,15 @@ This used to be one single ~18.8MB HTML file with the AK47 model embedded inline
 - **Sniper** and **SMG** — still fully procedural; no real model sourced for these yet (Sketchfab didn't have a free-download option for the ones found, only preview-only listings).
 - **LMG specifically** is "deployed" rather than carried: equipping it (`5`) locks player movement and jumping in place (bipod down), dips the view slightly, and tightens bullet spread — meant to feel like setting up a braced gun position rather than just holding a bigger rifle. Switching to any other weapon un-deploys it instantly.
 
+## Pickups
+
+Killed bots have a chance to drop a pickup at their feet — an ammo crate or a medikit, bobbing and slowly spinning in place. Walk over one to collect it:
+
+- **Ammo crate** — refills the *currently equipped* weapon's reserve ammo by 30-55% of its max. Left alone if that weapon's reserve is already full.
+- **Medikit** — heals the player 35 HP. Left alone if already at full health.
+
+Drops despawn after ~22 seconds if not collected (fading out just before they do), so the arena doesn't fill up with permanent clutter over a long run.
+
 ## Credits
 
 - "Ak47" first-person rigged model by kursat_sokmen (https://skfb.ly/6UEL9), licensed CC BY 4.0.
