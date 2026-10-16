@@ -47,6 +47,12 @@ Killed bots have a chance to drop a pickup at their feet — an ammo crate or a 
 
 Drops despawn after ~22 seconds if not collected (fading out just before they do), so the arena doesn't fill up with permanent clutter over a long run.
 
+## HUD: minimap, kill feed, damage numbers
+
+- **Minimap** (top-right) — a player-facing-up top-down radar. Red dots are hostiles (brighter orange for elites), teal/gold dots are nearby pickups, white arrow is always the player facing "up".
+- **Kill feed** (below the minimap) — stacks up to 5 recent eliminations ("YOU ↠ HOSTILE TYPE", headshots tagged in yellow), each fading out a few seconds after it lands.
+- **Damage numbers** — float up from the hit point on every bot hit: white for a body shot, yellow for a headshot, orange for the shot that finishes the kill.
+
 ## Credits
 
 - "Ak47" first-person rigged model by kursat_sokmen (https://skfb.ly/6UEL9), licensed CC BY 4.0.

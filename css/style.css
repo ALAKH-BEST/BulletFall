@@ -233,6 +233,45 @@
   }
   #mute-btn:active{ transform:translateY(1px); }
 
+  /* ---------- minimap ---------- */
+  #minimap{
+    position:fixed; top:64px; right:16px; z-index:20;
+    width:150px; height:150px; border-radius:50%;
+    background:var(--panel); border:2px solid var(--sand);
+    overflow:hidden; pointer-events:none;
+  }
+  #minimap-canvas{ width:100%; height:100%; display:block; }
+
+  /* ---------- kill feed ---------- */
+  #kill-feed{
+    position:fixed; top:226px; right:16px; z-index:20;
+    width:220px; display:flex; flex-direction:column; align-items:flex-end; gap:5px;
+    pointer-events:none;
+  }
+  .kf-entry{
+    font-size:13px; letter-spacing:0.04em; color:var(--bone-dim);
+    background:rgba(20,14,6,0.55); border-right:2px solid var(--sand);
+    padding:4px 10px; border-radius:2px; text-align:right;
+    white-space:nowrap;
+    /* opacity/transform are driven per-frame by updateKillFeed() in game.js,
+       not a CSS animation — see the comment above addKillFeedEntry() for why. */
+  }
+  .kf-entry .kf-you{ color:var(--sand); }
+  .kf-entry.headshot{ border-right-color:#ffd23a; }
+  .kf-entry.headshot .kf-tag{ color:#ffd23a; }
+  .kf-entry.elite{ border-right-color:var(--ember); }
+
+  /* ---------- floating damage numbers ---------- */
+  #dmg-num-layer{ position:fixed; inset:0; z-index:19; pointer-events:none; overflow:hidden; }
+  .dmg-num{
+    position:absolute; left:0; top:0; transform:translate(-50%,-50%);
+    font-family:'Rajdhani',sans-serif; font-weight:700; letter-spacing:0.02em;
+    color:var(--bone); font-size:16px; text-shadow:0 1px 4px rgba(0,0,0,0.8);
+    white-space:nowrap;
+  }
+  .dmg-num.headshot{ color:#ffd23a; font-size:20px; }
+  .dmg-num.kill{ color:var(--ember); font-size:22px; }
+
   /* ---------- start / death overlays ---------- */
   .overlay{
     position:fixed; inset:0; z-index:50;

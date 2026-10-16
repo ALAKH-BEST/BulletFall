@@ -88,6 +88,17 @@
 </div>
 <div id="mute-btn" title="Mute/Unmute">🔊</div>
 
+<!-- minimap: top-down radar of nearby hostiles, drawn fresh each frame on the canvas below -->
+<div id="minimap">
+  <canvas id="minimap-canvas" width="150" height="150"></canvas>
+</div>
+
+<!-- kill feed: stacks recent eliminations, each entry removes itself after a few seconds -->
+<div id="kill-feed" class="hud-font"></div>
+
+<!-- floating damage numbers: pooled DOM nodes positioned via camera projection each frame -->
+<div id="dmg-num-layer"></div>
+
 <!-- wave / streak / score / level-up / elite feedback -->
 <div id="wave-banner" class="hud-font">
   <div class="wb-title">WAVE 01</div>
