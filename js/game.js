@@ -1552,6 +1552,7 @@ function loadRealEnvProp(url, instances, opts) {
       // real-world origin/scale, not centered/grounded for drop-in use.
       const box = new THREE.Box3().setFromObject(template);
       const center = box.getCenter(new THREE.Vector3());
+      const rawSize = box.getSize(new THREE.Vector3());
       template.position.x -= center.x;
       template.position.z -= center.z;
       template.position.y -= box.min.y;
@@ -1576,12 +1577,18 @@ function loadRealEnvProp(url, instances, opts) {
           }
         });
         // Rotation-aware 2D collider half-extents (same math as buildWallRuin).
+        // Width/depth come from the template's own measured bounding box
+        // (rawSize, in the model's raw/unscaled units) times this instance's
+        // scale — NOT from a manually-estimated opts.colliderW/colliderD,
+        // which was tried first and silently produced a near-zero collider
+        // (a hand-measured real-world size getting scaled down a second
+        // time here), letting the player walk straight through.
         // Skippable: the sandbag wall model is layered visually on top of the
         // existing buildSandbagLine() bags, which already own a collider at
         // the same spot — adding a second one here would just double it up.
         if (!opts.skipCollider) {
-          const w = (opts.colliderW || 1) * scale;
-          const d = (opts.colliderD || opts.colliderW || 1) * scale;
+          const w = rawSize.x * scale;
+          const d = rawSize.z * scale;
           const rotY = inst.ry || 0;
           const pad = opts.pad != null ? opts.pad : 0.2;
           const hw = Math.abs(Math.cos(rotY)) * w / 2 + Math.abs(Math.sin(rotY)) * d / 2 + pad;
@@ -2777,7 +2784,7 @@ loadRealAssaultModel().then(() => {
     { x: -5, z: -5, ry: 0.35 },
     { x: 0, z: 10, ry: -0.2 },
     { x: -22, z: -14, ry: 1.0 },
-  ], { scale: 0.0065, colliderW: 4.87, colliderD: 2.28, surface: 'metal' });
+  ], { scale: 0.0065, surface: 'metal' });
 }).then(() => {
   return loadRealEnvProp('assets/concrete_barrier.glb', [
     { x: -4.6, z: -20, ry: Math.PI / 2 },
@@ -2785,7 +2792,7 @@ loadRealAssaultModel().then(() => {
     { x: -4.6, z: -2, ry: Math.PI / 2 },
     { x: 4.6, z: 6, ry: Math.PI / 2 },
     { x: -4.6, z: 14, ry: Math.PI / 2 },
-  ], { scale: 0.0095, colliderW: 1.72, colliderD: 1.42, surface: 'rock' });
+  ], { scale: 0.0095, surface: 'rock' });
 }).then(() => {
   return loadRealEnvProp('assets/sandbag_wall.glb', [
     { x: -19, z: -19, ry: 0.9 },
