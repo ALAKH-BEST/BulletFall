@@ -3245,6 +3245,11 @@ const ammoCrateBandMat = new THREE.MeshStandardMaterial({ color: 0xd8b458, rough
 const medkitBodyMat = new THREE.MeshStandardMaterial({ color: 0xe8e2d4, roughness: 0.55, metalness: 0.05 });
 const medkitCrossMat = new THREE.MeshStandardMaterial({ color: 0xd8382a, roughness: 0.5, metalness: 0.05, emissive: 0x4a0f0a, emissiveIntensity: 0.4 });
 
+// Bumped noticeably larger than a "realistic" crate/kit would be (2.3x the
+// original size) specifically so they read clearly at a glance across the
+// arena instead of blending into the ground clutter — legibility over scale
+// accuracy for a pickup the player needs to spot while fighting.
+const PICKUP_MESH_SCALE = 2.3;
 function buildAmmoCrateMesh() {
   const g = new THREE.Group();
   const box = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.24, 0.24), ammoCrateMat);
@@ -3255,6 +3260,7 @@ function buildAmmoCrateMesh() {
     g.add(band);
   });
   g.traverse((c) => { if (c.isMesh) { c.castShadow = true; c.frustumCulled = false; } });
+  g.scale.setScalar(PICKUP_MESH_SCALE);
   return g;
 }
 function buildMedkitMesh() {
@@ -3267,12 +3273,13 @@ function buildMedkitMesh() {
   crossV.position.set(0, 0.02, 0.115);
   g.add(crossH, crossV);
   g.traverse((c) => { if (c.isMesh) { c.castShadow = true; c.frustumCulled = false; } });
+  g.scale.setScalar(PICKUP_MESH_SCALE);
   return g;
 }
 
 const PICKUP_POOL_SIZE = 10;
 const PICKUP_LIFETIME = 22; // seconds before an uncollected drop despawns
-const PICKUP_RADIUS = 1.1; // walk-over collection distance (xz, meters)
+const PICKUP_RADIUS = 1.3; // walk-over collection distance (xz, meters) — widened slightly to match the bigger mesh
 const pickupPool = [];
 for (let i = 0; i < PICKUP_POOL_SIZE; i++) {
   const group = new THREE.Group();
@@ -3296,7 +3303,7 @@ function spawnPickup(point) {
   p.active = true;
   p.life = 0;
   p.bobT = Math.random() * 10;
-  p.baseY = 0.22;
+  p.baseY = 0.32; // raised to clear the ground at the new, larger mesh scale
   p.group.position.set(point.x, p.baseY, point.z);
   p.group.rotation.y = Math.random() * Math.PI * 2;
   p.group.visible = true;
