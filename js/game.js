@@ -1133,11 +1133,15 @@ function buildCrateTexture(baseHex, bandHex) {
 }
 const crateMat1 = new THREE.MeshStandardMaterial({ map: buildCrateTexture(THEMES.dustline.crate1.base, THEMES.dustline.crate1.band), roughness: 0.8 });
 const crateMat2 = new THREE.MeshStandardMaterial({ map: buildCrateTexture(THEMES.dustline.crate2.base, THEMES.dustline.crate2.band), roughness: 0.85 });
+// Four of the largest crate spots ((-7,6), (-5,-5), (0,10), (-22,-14)) are deliberately
+// left out here — they're where the real shipping-container model goes instead (see
+// loadRealEnvProps below), so the same square footprint doesn't get a procedural crate
+// AND a container stacked on top of each other.
 const cratePositions = [
-  [6, 0, 4, 2.2], [-7, 0, 6, 2.6], [3, 0, -8, 2.0],
-  [-5, 0, -5, 3.0], [10, 0, -3, 2.2], [-11, 0, 2, 2.0],
-  [0, 0, 10, 2.4], [8, 0, 9, 1.8],
-  [-22, 0, -14, 2.4], [22, 0, -18, 2.0], [-20, 0, 20, 2.6],
+  [6, 0, 4, 2.2], [3, 0, -8, 2.0],
+  [10, 0, -3, 2.2], [-11, 0, 2, 2.0],
+  [8, 0, 9, 1.8],
+  [22, 0, -18, 2.0],
   [24, 0, 14, 2.2], [-28, 0, 2, 2.0], [28, 0, -4, 2.4],
   [-14, 0, -26, 2.2], [16, 0, 26, 2.0], [4, 0, -22, 2.6],
   [-4, 0, 24, 2.2],
@@ -1523,6 +1527,73 @@ function buildSandbagLine(x, z, len, rotY) {
 }
 buildSandbagLine(-19, -19, 4.5, 0.9);
 buildSandbagLine(-27, -16, 4, 0.15);
+
+// Real sourced environment props (shipping container, concrete barrier,
+// stacked sandbag wall) layered in alongside the procedural geometry above,
+// using the same fetch + THREE.GLTFLoader().parse() pattern already proven
+// for the real gun models. Loads each source file once, then clones it per
+// placement instance so the network/parse cost is paid only once no matter
+// how many times a prop is placed. Pushes the actual meshes (not a wrapper
+// Group) into envMeshes/collidables — intersectObjects() is called with
+// recursive:false everywhere in this file (see tryShoot/losRaycaster), so a
+// childless Group would be invisible to both bullet hits and bot LOS checks.
+function loadRealEnvProp(url, instances, opts) {
+  opts = opts || {};
+  if (typeof THREE.GLTFLoader !== 'function') return Promise.resolve();
+  return fetch(url)
+    .then((res) => { if (!res.ok) throw new Error('HTTP ' + res.status); return res.arrayBuffer(); })
+    .then((buffer) => new Promise((resolve, reject) => {
+      new THREE.GLTFLoader().parse(buffer, '', resolve, reject);
+    }))
+    .then((gltf) => {
+      const template = gltf.scene;
+      // Center the template on its own footprint (X/Z) and rest it on
+      // Y=0 (its lowest point) — these exports come in at an arbitrary
+      // real-world origin/scale, not centered/grounded for drop-in use.
+      const box = new THREE.Box3().setFromObject(template);
+      const center = box.getCenter(new THREE.Vector3());
+      template.position.x -= center.x;
+      template.position.z -= center.z;
+      template.position.y -= box.min.y;
+      instances.forEach((inst) => {
+        const clone = template.clone(true);
+        const wrapper = new THREE.Group();
+        wrapper.add(clone);
+        const scale = inst.scale || opts.scale || 1;
+        wrapper.scale.setScalar(scale);
+        wrapper.position.set(inst.x, 0, inst.z);
+        wrapper.rotation.y = inst.ry || 0;
+        scene.add(wrapper);
+        wrapper.updateMatrixWorld(true);
+        clone.traverse((child) => {
+          if (child.isMesh) {
+            child.castShadow = true;
+            child.receiveShadow = true;
+            child.frustumCulled = false;
+            child.userData.type = 'env';
+            child.userData.surface = opts.surface || 'metal';
+            envMeshes.push(child);
+          }
+        });
+        // Rotation-aware 2D collider half-extents (same math as buildWallRuin).
+        // Skippable: the sandbag wall model is layered visually on top of the
+        // existing buildSandbagLine() bags, which already own a collider at
+        // the same spot — adding a second one here would just double it up.
+        if (!opts.skipCollider) {
+          const w = (opts.colliderW || 1) * scale;
+          const d = (opts.colliderD || opts.colliderW || 1) * scale;
+          const rotY = inst.ry || 0;
+          const pad = opts.pad != null ? opts.pad : 0.2;
+          const hw = Math.abs(Math.cos(rotY)) * w / 2 + Math.abs(Math.sin(rotY)) * d / 2 + pad;
+          const hd = Math.abs(Math.sin(rotY)) * w / 2 + Math.abs(Math.cos(rotY)) * d / 2 + pad;
+          addCollider(inst.x - hw, inst.z - hd, inst.x + hw, inst.z + hd);
+        }
+      });
+    })
+    .catch((err) => {
+      console.error('Env prop: failed to load ' + url + ', skipping (procedural geometry stays as-is).', err);
+    });
+}
 
 // damaged vehicle wreck — simple boxy chassis + cylinder wheels, tilted for a "knocked out" look
 {
@@ -2694,7 +2765,37 @@ function loadRealStaticGunBody(weaponKey, url, fit) {
 // one confirmed-stable state (AK47 only) rather than leave the live game
 // broken. The two calls and the loader function above are left in place,
 // untouched, for whenever this gets picked back up.
-loadRealAssaultModel();
+loadRealAssaultModel().then(() => {
+  // Environment props load one at a time, AFTER the AK47 has fully settled
+  // (success or failure) — same real-hardware-contention mitigation as the
+  // shotgun/LMG sequencing above, applied here from the start rather than
+  // learned the hard way again. ~7.3MB combined (container 5.6MB, barrier
+  // 0.9MB, sandbag 0.7MB) spread across three settled-one-after-another
+  // fetches instead of three more concurrent ones stacked on page load.
+  return loadRealEnvProp('assets/shipping_container.glb', [
+    { x: -7, z: 6, ry: 0 },
+    { x: -5, z: -5, ry: 0.35 },
+    { x: 0, z: 10, ry: -0.2 },
+    { x: -22, z: -14, ry: 1.0 },
+  ], { scale: 0.0065, colliderW: 4.87, colliderD: 2.28, surface: 'metal' });
+}).then(() => {
+  return loadRealEnvProp('assets/concrete_barrier.glb', [
+    { x: -4.6, z: -20, ry: Math.PI / 2 },
+    { x: 4.6, z: -12, ry: Math.PI / 2 },
+    { x: -4.6, z: -2, ry: Math.PI / 2 },
+    { x: 4.6, z: 6, ry: Math.PI / 2 },
+    { x: -4.6, z: 14, ry: Math.PI / 2 },
+  ], { scale: 0.0095, colliderW: 1.72, colliderD: 1.42, surface: 'rock' });
+}).then(() => {
+  return loadRealEnvProp('assets/sandbag_wall.glb', [
+    { x: -19, z: -19, ry: 0.9 },
+    { x: -27, z: -16, ry: 0.15 },
+  ], { scale: 0.01524, surface: 'wood', skipCollider: true });
+});
+// Real shotgun/LMG static-model swap stays disabled — this is the
+// confirmed-stable AK47-only state for weapons (see loadRealStaticGunBody
+// above and its disable note). The env-prop chain above is new/separate and
+// doesn't touch the weapon loaders either way.
 // loadRealAssaultModel().then(() => {
 //   return loadRealStaticGunBody('shotgun', 'assets/shotgun_real.glb', { scale: 0.0044, x: 0.16, y: -0.17, z: -0.42, ry: Math.PI / 2 });
 // }).then(() => {

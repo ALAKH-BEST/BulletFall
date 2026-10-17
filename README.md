@@ -24,9 +24,12 @@ css/style.css           # all styling (HUD, menus, overlays)
 js/error-handler.js      # top-level error banner
 js/gltf-loader.js        # patched THREE.GLTFLoader (three-gltf-loader v1.111.0, adapted for r128's global/non-module build)
 js/game.js               # the game itself — scene setup, weapons, enemies, waves, input, HUD
-assets/ak47.glb          # rigged first-person AK47 + hands model, fetched and parsed at startup
-assets/shotgun_real.glb  # static Remington 870 MCS model, swapped in over the procedural shotgun body
-assets/lmg_real.glb      # static Browning M2 model, swapped in over the procedural LMG body
+assets/ak47.glb                # rigged first-person AK47 + hands model, fetched and parsed at startup
+assets/shotgun_real.glb        # static Remington 870 MCS model, swapped in over the procedural shotgun body
+assets/lmg_real.glb            # static Browning M2 model, swapped in over the procedural LMG body
+assets/shipping_container.glb  # real shipping-container model, swapped in for some of the big procedural crates
+assets/concrete_barrier.glb    # real Jersey-style concrete road barrier, lining the central road
+assets/sandbag_wall.glb        # real stacked-sandbag model, layered over the procedural sandbag positions
 ```
 
 This used to be one single ~18.8MB HTML file with the AK47 model embedded inline as a base64 string. It's now split into normal files, with models as their own binary assets (fetched at runtime instead of base64-baked into the page — base64 always inflates binary size by about a third, so this is smaller too), so the repo reads and diffs like a normal web project instead of one giant blob.
@@ -47,6 +50,16 @@ Killed bots have a chance to drop a pickup at their feet — an ammo crate or a 
 
 Drops despawn after ~22 seconds if not collected (fading out just before they do), so the arena doesn't fill up with permanent clutter over a long run.
 
+## Environment props
+
+A handful of the procedural boxes/barriers in the arena have been swapped for real sourced models, the same way the shotgun and LMG got real gun meshes:
+
+- **Shipping container** — replaces four of the largest procedural crates near the central combat area.
+- **Concrete barrier** — lines the central road as cover, alternating sides.
+- **Sandbag wall** — layered visually over the two existing sandbag positions (the original procedural bags still provide the collision there, so cover/LOS-blocking behavior is unchanged).
+
+All three load one at a time, each only starting once the previous one (and the AK47) has fully settled — the same sequencing used for the real gun models, to avoid stacking several large downloads on page load at once.
+
 ## HUD: minimap, kill feed, damage numbers
 
 - **Minimap** (top-right) — a player-facing-up top-down radar. Red dots are hostiles (brighter orange for elites), teal/gold dots are nearby pickups, white arrow is always the player facing "up".
@@ -58,5 +71,8 @@ Drops despawn after ~22 seconds if not collected (fading out just before they do
 - "Ak47" first-person rigged model by kursat_sokmen (https://skfb.ly/6UEL9), licensed CC BY 4.0.
 - "Low-Poly Browning M2E2" by Kaan (https://skfb.ly/ovSrR), licensed CC Attribution 4.0 (http://creativecommons.org/licenses/by/4.0/).
 - "870 MCS Shotgun" by FelipeMSX (https://sketchfab.com/3d-models/870-mcs-shotgun-8fa7d482920e4eda8648766fb38596c0), licensed CC Attribution.
+- "Shipping Container" by chaschinkaa (https://sketchfab.com/3d-models/shipping-container-7bf5a49425134544b9b6708c4e45ce11), licensed CC Attribution 4.0.
+- "Lowpoly Concrete Barrier" by qb (https://sketchfab.com/3d-models/lowpoly-concrete-barrier-e0fb4ba5ee434433bbdb4a16aaa2f8fb), licensed CC Attribution 4.0.
+- "Sandbag Wall 04" by Pypunk (https://sketchfab.com/3d-models/sandbag-wall-04-a5ea125e9d534b54a3185f349da6aabd), licensed CC Attribution 4.0.
 - Three.js r128, MIT License.
 - GLTFLoader adapted from three-gltf-loader v1.111.0 by Rich Tibbett / mrdoob, MIT License.
