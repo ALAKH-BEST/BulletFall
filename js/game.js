@@ -1173,6 +1173,11 @@ function tintGeometryFaces(geo, baseColor, variance) {
   nonIndexed.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   return nonIndexed;
 }
+// Every buildRock() call registers here (x, z, s, plus the mesh + chip
+// meshes it created) so a real-model swap can later hide the procedural
+// version and clone a real boulder in its place at the same spot, without
+// needing to touch any of the many buildRock() call sites below.
+const rockRegistry = [];
 function buildRock(x, z, s) {
   // Subdivided, multi-frequency displaced stone instead of a regular 20-face ico.
   const geo = new THREE.IcosahedronGeometry(s, 2);
@@ -1219,6 +1224,7 @@ function buildRock(x, z, s) {
 
   // A few small broken strata chips visually merge each boulder into the ground.
   const chipMat = new THREE.MeshStandardMaterial({ color: 0x554536, roughness: 1, flatShading: true });
+  const chips = [];
   for (let j = 0; j < 2; j++) {
     const chipGeo = new THREE.IcosahedronGeometry(s * (.18 + Math.random() * .09), 1);
     const chip = new THREE.Mesh(chipGeo, chipMat);
@@ -1229,7 +1235,9 @@ function buildRock(x, z, s) {
     chip.castShadow = true; chip.receiveShadow = true;
     chip.userData.type = 'env'; chip.userData.surface = 'rock';
     scene.add(chip); envMeshes.push(chip);
+    chips.push(chip);
   }
+  rockRegistry.push({ x, z, s, mesh: m, chips });
 }
 buildRock(-16, -14, 2.6);
 buildRock(15, 15, 3.0);
@@ -1246,6 +1254,13 @@ buildRock(0, -32, 3.6);
 // canyon/rock route — alternating boulders along the east edge form a walkable corridor
 buildRock(31, 8, 2.8); buildRock(33, 3, 2.4);
 buildRock(31, -2, 3.0); buildRock(33, -7, 2.6);
+
+// Everything registered so far is a deliberately hand-placed rock the player
+// will actually walk past/near — these are the ones worth swapping for a
+// real boulder model. Below this point, dressBoundary() scatters ~40 more
+// as far-edge silhouette-breaking padding; those stay procedural (cheap,
+// rarely seen up close, and not worth the extra real-mesh instance count).
+const rockSwapCutoff = rockRegistry.length;
 
 // Boundary dressing — the four flat box walls above are what collision
 // actually uses (untouched), but a bare rectangular slab reads as an
@@ -1599,6 +1614,71 @@ function loadRealEnvProp(url, instances, opts) {
     })
     .catch((err) => {
       console.error('Env prop: failed to load ' + url + ', skipping (procedural geometry stays as-is).', err);
+    });
+}
+
+// Swaps the real Poly Haven boulder model in for the hand-placed procedural
+// rocks registered in rockRegistry[0..cutoff) — the deliberately positioned
+// ones the player actually walks past, not the random far-edge dressing.
+// Each swap removes that rock's old procedural mesh + chip meshes (scene
+// and envMeshes both) and clones the real boulder in at the same x/z, sized
+// to roughly match the footprint the procedural version would have had, so
+// collision (already registered by buildRock) still lines up.
+function loadRealBoulders(url, cutoff) {
+  if (typeof THREE.GLTFLoader !== 'function') return Promise.resolve();
+  return fetch(url)
+    .then((res) => { if (!res.ok) throw new Error('HTTP ' + res.status); return res.arrayBuffer(); })
+    .then((buffer) => new Promise((resolve, reject) => {
+      new THREE.GLTFLoader().parse(buffer, '', resolve, reject);
+    }))
+    .then((gltf) => {
+      const template = gltf.scene;
+      const box = new THREE.Box3().setFromObject(template);
+      const center = box.getCenter(new THREE.Vector3());
+      const rawSize = box.getSize(new THREE.Vector3());
+      template.position.x -= center.x;
+      template.position.z -= center.z;
+      template.position.y -= box.min.y;
+      const maxHorizontal = Math.max(rawSize.x, rawSize.z);
+
+      rockRegistry.slice(0, cutoff).forEach((rock) => {
+        scene.remove(rock.mesh);
+        let idx = envMeshes.indexOf(rock.mesh);
+        if (idx !== -1) envMeshes.splice(idx, 1);
+        rock.chips.forEach((chip) => {
+          scene.remove(chip);
+          idx = envMeshes.indexOf(chip);
+          if (idx !== -1) envMeshes.splice(idx, 1);
+        });
+
+        const clone = template.clone(true);
+        const wrapper = new THREE.Group();
+        wrapper.add(clone);
+        // Matches buildRock's own sizing: a rock called with radius s reads
+        // as roughly 2*s wide, so scale the real model's own horizontal
+        // footprint to land on the same width.
+        const scale = (rock.s * 2) / maxHorizontal;
+        wrapper.scale.setScalar(scale);
+        wrapper.position.set(rock.x, 0, rock.z);
+        wrapper.rotation.y = Math.random() * Math.PI * 2;
+        scene.add(wrapper);
+        clone.traverse((child) => {
+          if (child.isMesh) {
+            child.castShadow = true;
+            child.receiveShadow = true;
+            child.frustumCulled = false;
+            child.userData.type = 'env';
+            child.userData.surface = 'rock';
+            envMeshes.push(child);
+          }
+        });
+        // No addCollider() here — buildRock() already registered this
+        // rock's collider (x ± s*.8) when it first created the procedural
+        // version; the real model is a same-spot visual swap only.
+      });
+    })
+    .catch((err) => {
+      console.error('Real boulders: failed to load ' + url + ', keeping procedural rocks.', err);
     });
 }
 
@@ -2798,6 +2878,12 @@ loadRealAssaultModel().then(() => {
     { x: -19, z: -19, ry: 0.9 },
     { x: -27, z: -16, ry: 0.15 },
   ], { scale: 0.01524, surface: 'wood', skipCollider: true });
+}).then(() => {
+  // Real Poly Haven boulder (CC0), converted from its source .blend file and
+  // swapped in for the hand-placed procedural rocks (the ones the player
+  // actually walks past — see rockSwapCutoff above). ~2.6MB, last in the
+  // sequential chain so it doesn't compete with anything else loading.
+  return loadRealBoulders('assets/boulder_real.glb', rockSwapCutoff);
 });
 // Real shotgun/LMG static-model swap stays disabled — this is the
 // confirmed-stable AK47-only state for weapons (see loadRealStaticGunBody
