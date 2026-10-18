@@ -2852,39 +2852,45 @@ function loadRealStaticGunBody(weaponKey, url, fit) {
 // one confirmed-stable state (AK47 only) rather than leave the live game
 // broken. The two calls and the loader function above are left in place,
 // untouched, for whenever this gets picked back up.
-loadRealAssaultModel().then(() => {
-  // Environment props load one at a time, AFTER the AK47 has fully settled
-  // (success or failure) — same real-hardware-contention mitigation as the
-  // shotgun/LMG sequencing above, applied here from the start rather than
-  // learned the hard way again. ~7.3MB combined (container 5.6MB, barrier
-  // 0.9MB, sandbag 0.7MB) spread across three settled-one-after-another
-  // fetches instead of three more concurrent ones stacked on page load.
-  return loadRealEnvProp('assets/shipping_container.glb', [
-    { x: -7, z: 6, ry: 0 },
-    { x: -5, z: -5, ry: 0.35 },
-    { x: 0, z: 10, ry: -0.2 },
-    { x: -22, z: -14, ry: 1.0 },
-  ], { scale: 0.0065, surface: 'metal' });
-}).then(() => {
-  return loadRealEnvProp('assets/concrete_barrier.glb', [
-    { x: -4.6, z: -20, ry: Math.PI / 2 },
-    { x: 4.6, z: -12, ry: Math.PI / 2 },
-    { x: -4.6, z: -2, ry: Math.PI / 2 },
-    { x: 4.6, z: 6, ry: Math.PI / 2 },
-    { x: -4.6, z: 14, ry: Math.PI / 2 },
-  ], { scale: 0.0095, surface: 'rock' });
-}).then(() => {
-  return loadRealEnvProp('assets/sandbag_wall.glb', [
-    { x: -19, z: -19, ry: 0.9 },
-    { x: -27, z: -16, ry: 0.15 },
-  ], { scale: 0.01524, surface: 'wood', skipCollider: true });
-}).then(() => {
-  // Real Poly Haven boulder (CC0), converted from its source .blend file and
-  // swapped in for the hand-placed procedural rocks (the ones the player
-  // actually walks past — see rockSwapCutoff above). ~2.6MB, last in the
-  // sequential chain so it doesn't compete with anything else loading.
-  return loadRealBoulders('assets/boulder_real.glb', rockSwapCutoff);
-});
+loadRealAssaultModel();
+// Env-prop chain (container/barrier/sandbag/boulder) disabled: a player
+// report after this went live was "i cant even see the ak47 now whats
+// happening and neither the crates" — i.e. not just the new props missing,
+// but things that were already working (the AK47, the procedural crates)
+// vanishing too. That symptom — previously-rendered, unrelated geometry
+// disappearing — doesn't fit a single asset failing to load; it fits a
+// WebGL context loss (e.g. from exceeding the device's texture/GPU memory
+// budget once ~9.8MB of additional textures across 4 more real models piled
+// on top of the AK47), which wipes the whole canvas, not just whatever
+// loaded last. Exactly the same unreproducible-in-this-sandbox,
+// real-hardware-only failure class as the shotgun/LMG regression earlier in
+// this file — same response: revert to the confirmed-stable state (AK47
+// only) rather than leave the live game broken while this gets investigated
+// further. The functions and call chain below are left in place, untouched,
+// for whenever this gets picked back up.
+// loadRealAssaultModel().then(() => {
+//   return loadRealEnvProp('assets/shipping_container.glb', [
+//     { x: -7, z: 6, ry: 0 },
+//     { x: -5, z: -5, ry: 0.35 },
+//     { x: 0, z: 10, ry: -0.2 },
+//     { x: -22, z: -14, ry: 1.0 },
+//   ], { scale: 0.0065, surface: 'metal' });
+// }).then(() => {
+//   return loadRealEnvProp('assets/concrete_barrier.glb', [
+//     { x: -4.6, z: -20, ry: Math.PI / 2 },
+//     { x: 4.6, z: -12, ry: Math.PI / 2 },
+//     { x: -4.6, z: -2, ry: Math.PI / 2 },
+//     { x: 4.6, z: 6, ry: Math.PI / 2 },
+//     { x: -4.6, z: 14, ry: Math.PI / 2 },
+//   ], { scale: 0.0095, surface: 'rock' });
+// }).then(() => {
+//   return loadRealEnvProp('assets/sandbag_wall.glb', [
+//     { x: -19, z: -19, ry: 0.9 },
+//     { x: -27, z: -16, ry: 0.15 },
+//   ], { scale: 0.01524, surface: 'wood', skipCollider: true });
+// }).then(() => {
+//   return loadRealBoulders('assets/boulder_real.glb', rockSwapCutoff);
+// });
 // Real shotgun/LMG static-model swap stays disabled — this is the
 // confirmed-stable AK47-only state for weapons (see loadRealStaticGunBody
 // above and its disable note). The env-prop chain above is new/separate and
