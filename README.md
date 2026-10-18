@@ -54,14 +54,14 @@ Drops despawn after ~22 seconds if not collected (fading out just before they do
 
 ## Environment props
 
-Real sourced models have been built for several of the procedural boxes/barriers/rocks in the arena, the same way the shotgun and LMG got real gun meshes — **but currently only the boulders are live**. The shipping container, concrete barrier, and sandbag wall swap-ins caused a real-hardware regression (the AK47 and even the always-present procedural crates disappeared — consistent with a WebGL context loss from exceeding the device's GPU/texture memory budget once too many large real models piled on top of each other) and are disabled, with their code left in place in `js/game.js` for whenever that gets revisited:
+Real sourced models have been built for several of the procedural boxes/barriers/rocks in the arena, the same way the shotgun and LMG got real gun meshes. These went live in stages, one at a time, after the full container+barrier+sandbag+boulder chain caused a real-hardware regression on first attempt (the AK47 and even the always-present procedural crates disappeared — consistent with a WebGL context loss from exceeding the device's GPU/texture memory budget). Boulders went back in first, alone, and were confirmed working; the shipping container followed once that was confirmed safe. Concrete barrier and sandbag wall are still disabled, code left in place in `js/game.js`, to keep bringing real assets back one isolated step at a time rather than all at once:
 
-- **Shipping container** *(disabled)* — would replace four of the largest procedural crates near the central combat area.
+- **Shipping container** *(live)* — replaces four of the largest procedural crates near the central combat area.
 - **Concrete barrier** *(disabled)* — would line the central road as cover, alternating sides.
 - **Sandbag wall** *(disabled)* — would layer visually over the two existing sandbag positions.
 - **Boulders** *(live)* — the ~16 hand-placed procedural rocks the player actually walks past (not the random far-edge boundary dressing) are swapped for real boulder models, cloned at each spot and scaled to roughly match the footprint the procedural rock would have had. Two boulder variants alternate by position for visual variety. Collision is untouched — it's a same-spot visual swap over colliders the procedural rock already registered.
 
-Real assets load one at a time, each only starting once the previous one (and the AK47) has fully settled — the same sequencing used for the real gun models, to avoid stacking several large downloads on page load at once. Re-enabling the boulders alone (rather than the full container/barrier/sandbag/boulder chain) was a deliberate, smaller step after the regression — about 5MB of additional real-model data instead of the ~9.8MB the full chain added — to isolate whether boulders alone are safe before the heavier props get revisited.
+Real assets load one at a time, each only starting once the previous one (and the AK47) has fully settled — the same sequencing used for the real gun models, to avoid stacking several large downloads on page load at once.
 
 Both boulders came from [Poly Haven](https://polyhaven.com/a/boulder_01) as `.blend` files (CC0; Poly Haven doesn't offer a lighter LOD as a direct glTF download) — converted locally with Blender's Python API (`bpy`): kept only the mid-detail LOD1 mesh, downscaled its 1k textures to 512px, and exported to `.glb` (down from an ~11.5MB everything-included export to ~2.6MB each).
 

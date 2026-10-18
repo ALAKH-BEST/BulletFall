@@ -2877,41 +2877,37 @@ function loadRealStaticGunBody(weaponKey, url, fit) {
 // one confirmed-stable state (AK47 only) rather than leave the live game
 // broken. The two calls and the loader function above are left in place,
 // untouched, for whenever this gets picked back up.
-// Container/barrier/sandbag stay DISABLED (see the commented-out chain
-// below) after the full 4-asset chain caused a real-hardware regression
-// (the AK47 and even the procedural crates disappeared — see that commit's
-// message). Re-enabling here, deliberately, is just the two boulder models
-// (~5MB combined, vs. the ~9.8MB the full chain added) as a smaller,
-// isolated step: if boulders alone are fine, the heavier container/barrier
-// assets are the more likely culprit; if boulders alone still break it,
-// that points at something else entirely (e.g. total asset count, or GPU
-// memory in general) rather than any one specific model.
+// Barrier/sandbag stay DISABLED (see the commented-out chain below) after
+// the full 4-asset chain caused a real-hardware regression (the AK47 and
+// even the procedural crates disappeared — see that commit's message).
+// Boulders were re-enabled first, alone, as an isolated ~5MB step and
+// confirmed working on the reporter's device (AK47 + stones loading fine).
+// Bringing the shipping container back next, still one asset at a time —
+// if THIS breaks it, the container specifically is implicated; if not,
+// barrier and sandbag can go back one at a time the same way.
 loadRealAssaultModel().then(() => {
   return loadRealBoulders(['assets/boulder_real.glb', 'assets/boulder_real2.glb'], rockSwapCutoff);
+}).then(() => {
+  return loadRealEnvProp('assets/shipping_container.glb', [
+    { x: -7, z: 6, ry: 0 },
+    { x: -5, z: -5, ry: 0.35 },
+    { x: 0, z: 10, ry: -0.2 },
+    { x: -22, z: -14, ry: 1.0 },
+  ], { scale: 0.0065, surface: 'metal' });
 });
-// loadRealAssaultModel().then(() => {
-//   return loadRealEnvProp('assets/shipping_container.glb', [
-//     { x: -7, z: 6, ry: 0 },
-//     { x: -5, z: -5, ry: 0.35 },
-//     { x: 0, z: 10, ry: -0.2 },
-//     { x: -22, z: -14, ry: 1.0 },
-//   ], { scale: 0.0065, surface: 'metal' });
-// }).then(() => {
-//   return loadRealEnvProp('assets/concrete_barrier.glb', [
-//     { x: -4.6, z: -20, ry: Math.PI / 2 },
-//     { x: 4.6, z: -12, ry: Math.PI / 2 },
-//     { x: -4.6, z: -2, ry: Math.PI / 2 },
-//     { x: 4.6, z: 6, ry: Math.PI / 2 },
-//     { x: -4.6, z: 14, ry: Math.PI / 2 },
-//   ], { scale: 0.0095, surface: 'rock' });
-// }).then(() => {
-//   return loadRealEnvProp('assets/sandbag_wall.glb', [
-//     { x: -19, z: -19, ry: 0.9 },
-//     { x: -27, z: -16, ry: 0.15 },
-//   ], { scale: 0.01524, surface: 'wood', skipCollider: true });
-// }).then(() => {
-//   return loadRealBoulders('assets/boulder_real.glb', rockSwapCutoff);
-// });
+// Next candidates, once the container above is confirmed safe — chain
+// these onto the container's .then() above, one at a time, the same way:
+// loadRealEnvProp('assets/concrete_barrier.glb', [
+//   { x: -4.6, z: -20, ry: Math.PI / 2 },
+//   { x: 4.6, z: -12, ry: Math.PI / 2 },
+//   { x: -4.6, z: -2, ry: Math.PI / 2 },
+//   { x: 4.6, z: 6, ry: Math.PI / 2 },
+//   { x: -4.6, z: 14, ry: Math.PI / 2 },
+// ], { scale: 0.0095, surface: 'rock' });
+// loadRealEnvProp('assets/sandbag_wall.glb', [
+//   { x: -19, z: -19, ry: 0.9 },
+//   { x: -27, z: -16, ry: 0.15 },
+// ], { scale: 0.01524, surface: 'wood', skipCollider: true });
 // Real shotgun/LMG static-model swap stays disabled — this is the
 // confirmed-stable AK47-only state for weapons (see loadRealStaticGunBody
 // above and its disable note). The env-prop chain above is new/separate and
