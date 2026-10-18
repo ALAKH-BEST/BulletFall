@@ -434,6 +434,15 @@ function sfxReloadDone(weaponKey) {
     tick(0,980,.2); tick(115,2250,.18); tick(220,1450,.13);
   }
 }
+function sfxKnifeSwing() {
+  // A quick air-whoosh — bandpass-filtered noise with a fast pitch sweep, nothing
+  // tonal/musical, same filtered-noise-only approach as the rest of the weapon sfx.
+  if (!audioCtx || audioMuted) return;
+  playNoise({ duration: 0.09, filterType: 'bandpass', freq: 900, Q: 0.6, gain: 0.22, decay: 0.08 });
+  setTimeout(() => {
+    playNoise({ duration: 0.05, filterType: 'bandpass', freq: 500, Q: 0.7, gain: 0.14, decay: 0.045 });
+  }, 40);
+}
 function sfxBotImpact(isHeadshot=false, weaponKey='assault') {
   // A body hit should be a dull, short impact rather than another electronic beep.
   // Built entirely from filtered noise — the earlier pitched triangle "thonk"
@@ -2091,6 +2100,7 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'Digit3') switchWeapon('sniper');
   if (e.code === 'Digit4') switchWeapon('smg');
   if (e.code === 'Digit5') switchWeapon('lmg');
+  if (e.code === 'Digit6') switchWeapon('knife');
   if (e.code === 'Escape') { if (Input.paused) resumeGame(); else openPauseMenu(); }
 });
 window.addEventListener('keyup', (e) => { keys[e.code] = false; });
@@ -2202,7 +2212,7 @@ const btnShoot = document.getElementById('btn-shoot');
 const btnJump = document.getElementById('btn-jump');
 const btnReload = document.getElementById('btn-reload');
 const btnWeapon = document.getElementById('btn-weapon');
-const weaponCycle = ['assault', 'smg', 'shotgun', 'sniper', 'lmg'];
+const weaponCycle = ['assault', 'smg', 'shotgun', 'sniper', 'lmg', 'knife'];
 btnShoot.addEventListener('touchstart', (e) => { e.preventDefault(); Input.shootHeld = true; }, { passive: false });
 btnShoot.addEventListener('touchend', (e) => { e.preventDefault(); Input.shootHeld = false; }, { passive: false });
 btnJump.addEventListener('touchstart', (e) => { e.preventDefault(); Input.jumpQueued = true; }, { passive: false });
@@ -2491,6 +2501,35 @@ function buildTriggerGuard(g, x, y, z) {
   weaponModels.lmg = g;
   g.magPart = drum;
   g.magBaseY = drum.position.y;
+}
+// Combat Knife — purely procedural (no fetched asset, by design — real-hardware GPU/texture
+// budget regressions have hit this project three times already with real env props, so the
+// one weapon with zero download risk stays hand-built): a steel blade, a guard, and a
+// wrapped handle, held low and forward like a drawn knife rather than slung like a gun.
+{
+  const g = new THREE.Group();
+  const bladeMat = new THREE.MeshStandardMaterial({ color: 0xc7ccd1, roughness: 0.25, metalness: 0.9 });
+  const handleMat = new THREE.MeshStandardMaterial({ color: 0x2a211a, roughness: 0.8, metalness: 0.05 });
+  const guardMat = gunMat;
+  const blade = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.012, 0.28), bladeMat);
+  blade.position.set(0.14, -0.15, -0.55);
+  // simple tapered tip, approximated as a thin wedge via a scaled cone
+  const tip = new THREE.Mesh(new THREE.ConeGeometry(0.021, 0.06, 4), bladeMat);
+  tip.rotation.x = -Math.PI / 2;
+  tip.rotation.y = Math.PI / 4;
+  tip.scale.set(1, 1, 0.5);
+  tip.position.set(0.14, -0.15, -0.72);
+  const guard = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.016, 0.018), guardMat);
+  guard.position.set(0.14, -0.15, -0.4);
+  const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.018, 0.16, 8), handleMat);
+  handle.rotation.x = Math.PI / 2;
+  handle.position.set(0.14, -0.15, -0.3);
+  const pommel = new THREE.Mesh(new THREE.SphereGeometry(0.018, 8, 8), guardMat);
+  pommel.position.set(0.14, -0.15, -0.21);
+  g.add(blade, tip, guard, handle, pommel);
+  g.visible = false;
+  gunGroup.add(g);
+  weaponModels.knife = g;
 }
 
 // Fine weapon detailing: rail slots, ejection port, selector, pins, barrel bands and grip texture.
@@ -3985,6 +4024,15 @@ const WEAPON_DEFS = {
     casingOffset: new THREE.Vector3(0.2, -0.13, -0.42),
     camShake: 0.022, flashDecay1: 22, flashDecay2: 55, recoilDecayRate: 7,
   },
+  knife: {
+    name: 'Combat Knife', damage: 55, fireInterval: 0.42, magSize: 0, reserveMax: 0,
+    reloadTime: 0, range: 2.4, spread: 0, pellets: 1, melee: true,
+    recoilPerShot: 0, recoilMax: 0, adsFov: 45,
+    muzzleScale: 1.0, flashColor: 0xffcf8a, casingScale: 1.0, casingColor: 0xd8b458,
+    muzzleOffset: new THREE.Vector3(0.16, -0.12, -0.5),
+    casingOffset: new THREE.Vector3(0.2, -0.12, -0.3),
+    camShake: 0, flashDecay1: 20, flashDecay2: 50, recoilDecayRate: 10,
+  },
 };
 function makeWeaponState(key) {
   const def = WEAPON_DEFS[key];
@@ -4022,9 +4070,18 @@ function switchWeapon(key) {
 
 const raycaster = new THREE.Raycaster();
 const stats = { shots: 0, hits: 0, kills: 0, startTime: 0 };
+const ZONE_MULT = { head: 2.0, torso: 1.0, legs: 0.6 };
+
+// Knife swing — a short, self-contained timer (not tied into gunFeel's idle/inspect/sway
+// system) driving a quick forward-and-back slash kick applied to gunGroup only while the
+// knife is equipped. Purely cosmetic, same as every other gunFeel offset.
+let knifeSwingActive = false;
+let knifeSwingTimer = 0;
+const KNIFE_SWING_DURATION = 0.22;
 
 function tryShoot() {
   if (!player.alive || player.sprinting || weapon.reloading || weapon.cooldown > 0) return;
+  if (weapon.melee) { tryMeleeAttack(); return; }
   if (weapon.mag <= 0) { startReload(); return; }
   weapon.mag--; weapon.cooldown = weapon.fireInterval;
   stats.shots++;
@@ -4046,7 +4103,6 @@ function tryShoot() {
   camera.getWorldPosition(origin);
   raycaster.far = weapon.range;
 
-  const ZONE_MULT = { head: 2.0, torso: 1.0, legs: 0.6 };
   const targets = [...envMeshes, ...bots.filter(b => b.alive).flatMap(b => b.hitboxes)];
   let anyBotHit = false, anyHeadshot = false;
   // Bipod steadiness: planted and braced beats held-up-by-arms for a gun this
@@ -4078,6 +4134,43 @@ function tryShoot() {
     }
   }
   if (anyBotHit) { stats.hits++; sfxBotImpact(anyHeadshot, currentWeaponKey); showHitMarker(anyHeadshot); }
+}
+
+// Melee attack — a short-range single raycast instead of ranged ballistics: no mag/reserve,
+// no muzzle flash, no casing eject, no tracer. Swings aren't counted into stats.shots/hits
+// (the "accuracy" stat downstream is meant to read as gunplay accuracy, and folding a
+// close-range melee raycast into it would make that number misleading either way).
+function tryMeleeAttack() {
+  weapon.cooldown = weapon.fireInterval;
+  gunFeel.idleTime = 0; gunFeel.inspectActive = false;
+  knifeSwingActive = true; knifeSwingTimer = 0;
+  sfxKnifeSwing();
+
+  const baseDir = new THREE.Vector3();
+  camera.getWorldDirection(baseDir);
+  const origin = new THREE.Vector3();
+  camera.getWorldPosition(origin);
+  raycaster.far = weapon.range;
+  raycaster.set(origin, baseDir);
+
+  const targets = [...envMeshes, ...bots.filter(b => b.alive).flatMap(b => b.hitboxes)];
+  const hitsArr = raycaster.intersectObjects(targets, false);
+  if (hitsArr.length > 0) {
+    const hit = hitsArr[0];
+    if (hit.object.userData.type === 'bot') {
+      const bot = hit.object.userData.botRef;
+      const zone = hit.object.userData.zone;
+      const isHeadshot = zone === 'head';
+      spawnImpact(hit.point, true, null, isHeadshot);
+      const dmgDealt = weapon.damage * (ZONE_MULT[zone] || 1);
+      bot.takeDamage(dmgDealt, zone, origin.distanceTo(hit.point));
+      spawnDamageNumber(hit.point, dmgDealt, isHeadshot, !bot.alive);
+      sfxBotImpact(isHeadshot, currentWeaponKey);
+      showHitMarker(isHeadshot);
+    } else {
+      spawnImpact(hit.point, false, hit.object.userData.surface);
+    }
+  }
 }
 
 function startReload() {
@@ -4685,7 +4778,7 @@ function updateHealthHUD() {
 }
 function updateAmmoHUD() {
   document.getElementById('weapon-name').textContent = weapon.name + (lmgDeployed ? ' — DEPLOYED' : '');
-  document.getElementById('ammo-count').innerHTML = `${weapon.mag}<span> / ${weapon.reserve}</span>`;
+  document.getElementById('ammo-count').innerHTML = weapon.melee ? 'MELEE' : `${weapon.mag}<span> / ${weapon.reserve}</span>`;
 }
 function updateKillHUD() {
   document.getElementById('kill-count').innerHTML = `${stats.kills} <span style="color:var(--bone-dim); font-size:14px;">DOWNED</span>`;
@@ -5083,11 +5176,25 @@ function animate() {
     gunGroup.rotation.y = gunFeel.swayYaw * 0.06 + gunFeel.sprintLower * 0.15 + breatheRY + inspRY;
     gunGroup.rotation.z = gunFeel.strafeTilt + gunFeel.recoilKickZ - reloadTwist * 0.5 + inspRZ;
 
-    // ADS — disabled while sprinting. weapon.adsSpeed (SMG faster, LMG slower) scales
-    // how quickly the zoom/reticle arrive; weapons that don't set it default to 1, so
-    // the assault/shotgun/sniper feel is unchanged.
+    // Knife swing kick — a quick forward-and-back slash, additive on top of the sway/recoil
+    // pose above, only while the knife is the equipped weapon.
+    if (knifeSwingActive) {
+      knifeSwingTimer += dt;
+      if (knifeSwingTimer >= KNIFE_SWING_DURATION) { knifeSwingActive = false; knifeSwingTimer = 0; }
+    }
+    if (currentWeaponKey === 'knife') {
+      const swingAmt = knifeSwingActive ? Math.sin((knifeSwingTimer / KNIFE_SWING_DURATION) * Math.PI) : 0;
+      gunGroup.rotation.x -= swingAmt * 0.55;
+      gunGroup.rotation.y += swingAmt * 0.4;
+      gunGroup.position.z -= swingAmt * 0.14;
+    }
+
+    // ADS — disabled while sprinting, and the knife never aims down sights.
+    // weapon.adsSpeed (SMG faster, LMG slower) scales how quickly the zoom/reticle
+    // arrive; weapons that don't set it default to 1, so the assault/shotgun/sniper
+    // feel is unchanged.
     const adsSpeedMult = weapon.adsSpeed || 1;
-    const targetFov = (Input.adsHeld && !isTouch && !isSprinting) ? weapon.adsFov : baseFov;
+    const targetFov = (Input.adsHeld && !isTouch && !isSprinting && !weapon.melee) ? weapon.adsFov : baseFov;
     camera.fov += (targetFov - camera.fov) * Math.min(1, dt * 10 * adsSpeedMult);
     camera.fov += gunFeel.fovPunch;
     gunFeel.fovPunch *= Math.max(0, 1 - dt * 14);
@@ -5097,7 +5204,7 @@ function animate() {
     // reticle and the zoom arrive together. Only the current weapon's reticle shows.
     // SMG/LMG reuse the assault rifle's red-dot (both are iron-sight/red-dot guns,
     // not scoped), rather than adding two more DOM reticle elements.
-    const adsTarget = (Input.adsHeld && !isTouch && !isSprinting) ? 1 : 0;
+    const adsTarget = (Input.adsHeld && !isTouch && !isSprinting && !weapon.melee) ? 1 : 0;
     adsBlend += (adsTarget - adsBlend) * Math.min(1, dt * 10 * adsSpeedMult);
     reddotEl.style.opacity = (currentWeaponKey === 'assault' || currentWeaponKey === 'smg' || currentWeaponKey === 'lmg') ? adsBlend : 0;
     shotgunSightEl.style.opacity = currentWeaponKey === 'shotgun' ? adsBlend : 0;
