@@ -30,7 +30,8 @@ assets/lmg_real.glb            # static Browning M2 model, swapped in over the p
 assets/shipping_container.glb  # real shipping-container model, swapped in for some of the big procedural crates
 assets/concrete_barrier.glb    # real Jersey-style concrete road barrier, lining the central road
 assets/sandbag_wall.glb        # real stacked-sandbag model, layered over the procedural sandbag positions
-assets/boulder_real.glb        # real boulder model (converted from Poly Haven's .blend source), swapped in for the hand-placed procedural rocks
+assets/boulder_real.glb        # real boulder model (Boulder 01, converted from Poly Haven's .blend source), swapped in for the hand-placed procedural rocks
+assets/boulder_real2.glb       # second real boulder variant (Namaqualand Boulder 03), alternated with boulder_real.glb for visual variety
 ```
 
 This used to be one single ~18.8MB HTML file with the AK47 model embedded inline as a base64 string. It's now split into normal files, with models as their own binary assets (fetched at runtime instead of base64-baked into the page — base64 always inflates binary size by about a third, so this is smaller too), so the repo reads and diffs like a normal web project instead of one giant blob.
@@ -53,16 +54,16 @@ Drops despawn after ~22 seconds if not collected (fading out just before they do
 
 ## Environment props
 
-A handful of the procedural boxes/barriers in the arena have been swapped for real sourced models, the same way the shotgun and LMG got real gun meshes:
+Real sourced models have been built for several of the procedural boxes/barriers/rocks in the arena, the same way the shotgun and LMG got real gun meshes — **but currently only the boulders are live**. The shipping container, concrete barrier, and sandbag wall swap-ins caused a real-hardware regression (the AK47 and even the always-present procedural crates disappeared — consistent with a WebGL context loss from exceeding the device's GPU/texture memory budget once too many large real models piled on top of each other) and are disabled, with their code left in place in `js/game.js` for whenever that gets revisited:
 
-- **Shipping container** — replaces four of the largest procedural crates near the central combat area.
-- **Concrete barrier** — lines the central road as cover, alternating sides.
-- **Sandbag wall** — layered visually over the two existing sandbag positions (the original procedural bags still provide the collision there, so cover/LOS-blocking behavior is unchanged).
-- **Boulders** — the ~16 hand-placed procedural rocks the player actually walks past (not the random far-edge boundary dressing) are swapped for a real boulder model, cloned at each spot and scaled to roughly match the footprint the procedural rock would have had. Collision is untouched — it's a same-spot visual swap over colliders the procedural rock already registered.
+- **Shipping container** *(disabled)* — would replace four of the largest procedural crates near the central combat area.
+- **Concrete barrier** *(disabled)* — would line the central road as cover, alternating sides.
+- **Sandbag wall** *(disabled)* — would layer visually over the two existing sandbag positions.
+- **Boulders** *(live)* — the ~16 hand-placed procedural rocks the player actually walks past (not the random far-edge boundary dressing) are swapped for real boulder models, cloned at each spot and scaled to roughly match the footprint the procedural rock would have had. Two boulder variants alternate by position for visual variety. Collision is untouched — it's a same-spot visual swap over colliders the procedural rock already registered.
 
-All four load one at a time, each only starting once the previous one (and the AK47) has fully settled — the same sequencing used for the real gun models, to avoid stacking several large downloads on page load at once.
+Real assets load one at a time, each only starting once the previous one (and the AK47) has fully settled — the same sequencing used for the real gun models, to avoid stacking several large downloads on page load at once. Re-enabling the boulders alone (rather than the full container/barrier/sandbag/boulder chain) was a deliberate, smaller step after the regression — about 5MB of additional real-model data instead of the ~9.8MB the full chain added — to isolate whether boulders alone are safe before the heavier props get revisited.
 
-The boulder came from [Poly Haven](https://polyhaven.com/a/boulder_01) as a `.blend` file (CC0, Poly Haven doesn't offer a lighter LOD as a direct glTF download) — converted locally with Blender's Python API (`bpy`): kept only the mid-detail LOD1 mesh, downscaled its 1k textures to 512px, and exported to `.glb` (down from an ~11.5MB everything-included export to ~2.6MB).
+Both boulders came from [Poly Haven](https://polyhaven.com/a/boulder_01) as `.blend` files (CC0; Poly Haven doesn't offer a lighter LOD as a direct glTF download) — converted locally with Blender's Python API (`bpy`): kept only the mid-detail LOD1 mesh, downscaled its 1k textures to 512px, and exported to `.glb` (down from an ~11.5MB everything-included export to ~2.6MB each).
 
 ## HUD: minimap, kill feed, damage numbers
 
@@ -79,5 +80,6 @@ The boulder came from [Poly Haven](https://polyhaven.com/a/boulder_01) as a `.bl
 - "Lowpoly Concrete Barrier" by qb (https://sketchfab.com/3d-models/lowpoly-concrete-barrier-e0fb4ba5ee434433bbdb4a16aaa2f8fb), licensed CC Attribution 4.0.
 - "Sandbag Wall 04" by Pypunk (https://sketchfab.com/3d-models/sandbag-wall-04-a5ea125e9d534b54a3185f349da6aabd), licensed CC Attribution 4.0.
 - "Boulder 01" from Poly Haven (https://polyhaven.com/a/boulder_01), CC0 — no attribution required, credited here anyway.
+- "Namaqualand Boulder 03" from Poly Haven (https://polyhaven.com/a/namaqualand_boulder_03), CC0 — no attribution required, credited here anyway.
 - Three.js r128, MIT License.
 - GLTFLoader adapted from three-gltf-loader v1.111.0 by Rich Tibbett / mrdoob, MIT License.

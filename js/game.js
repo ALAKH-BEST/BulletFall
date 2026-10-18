@@ -1617,15 +1617,12 @@ function loadRealEnvProp(url, instances, opts) {
     });
 }
 
-// Swaps the real Poly Haven boulder model in for the hand-placed procedural
-// rocks registered in rockRegistry[0..cutoff) — the deliberately positioned
-// ones the player actually walks past, not the random far-edge dressing.
-// Each swap removes that rock's old procedural mesh + chip meshes (scene
-// and envMeshes both) and clones the real boulder in at the same x/z, sized
-// to roughly match the footprint the procedural version would have had, so
-// collision (already registered by buildRock) still lines up.
-function loadRealBoulders(url, cutoff) {
-  if (typeof THREE.GLTFLoader !== 'function') return Promise.resolve();
+// Fetches+parses one boulder model and returns a ready-to-clone template
+// (centered on X/Z, rested on Y=0, with its raw horizontal footprint for
+// sizing) — shared by loadRealBoulders below for each of the (possibly
+// several) boulder variants it swaps in.
+function loadBoulderTemplate(url) {
+  if (typeof THREE.GLTFLoader !== 'function') return Promise.resolve(null);
   return fetch(url)
     .then((res) => { if (!res.ok) throw new Error('HTTP ' + res.status); return res.arrayBuffer(); })
     .then((buffer) => new Promise((resolve, reject) => {
@@ -1639,47 +1636,75 @@ function loadRealBoulders(url, cutoff) {
       template.position.x -= center.x;
       template.position.z -= center.z;
       template.position.y -= box.min.y;
-      const maxHorizontal = Math.max(rawSize.x, rawSize.z);
-
-      rockRegistry.slice(0, cutoff).forEach((rock) => {
-        scene.remove(rock.mesh);
-        let idx = envMeshes.indexOf(rock.mesh);
-        if (idx !== -1) envMeshes.splice(idx, 1);
-        rock.chips.forEach((chip) => {
-          scene.remove(chip);
-          idx = envMeshes.indexOf(chip);
-          if (idx !== -1) envMeshes.splice(idx, 1);
-        });
-
-        const clone = template.clone(true);
-        const wrapper = new THREE.Group();
-        wrapper.add(clone);
-        // Matches buildRock's own sizing: a rock called with radius s reads
-        // as roughly 2*s wide, so scale the real model's own horizontal
-        // footprint to land on the same width.
-        const scale = (rock.s * 2) / maxHorizontal;
-        wrapper.scale.setScalar(scale);
-        wrapper.position.set(rock.x, 0, rock.z);
-        wrapper.rotation.y = Math.random() * Math.PI * 2;
-        scene.add(wrapper);
-        clone.traverse((child) => {
-          if (child.isMesh) {
-            child.castShadow = true;
-            child.receiveShadow = true;
-            child.frustumCulled = false;
-            child.userData.type = 'env';
-            child.userData.surface = 'rock';
-            envMeshes.push(child);
-          }
-        });
-        // No addCollider() here — buildRock() already registered this
-        // rock's collider (x ± s*.8) when it first created the procedural
-        // version; the real model is a same-spot visual swap only.
-      });
+      return { template, maxHorizontal: Math.max(rawSize.x, rawSize.z) };
     })
     .catch((err) => {
-      console.error('Real boulders: failed to load ' + url + ', keeping procedural rocks.', err);
+      console.error('Boulder template: failed to load ' + url + '.', err);
+      return null;
     });
+}
+
+// Removes a procedural rock's mesh+chips (scene and envMeshes both) and
+// clones the given boulder template in at the same x/z, sized to roughly
+// match the footprint the procedural version would have had. No
+// addCollider() — buildRock() already registered this spot's collider, so
+// this is a same-spot visual swap only.
+function swapRockForReal(rock, tpl) {
+  scene.remove(rock.mesh);
+  let idx = envMeshes.indexOf(rock.mesh);
+  if (idx !== -1) envMeshes.splice(idx, 1);
+  rock.chips.forEach((chip) => {
+    scene.remove(chip);
+    idx = envMeshes.indexOf(chip);
+    if (idx !== -1) envMeshes.splice(idx, 1);
+  });
+
+  const clone = tpl.template.clone(true);
+  const wrapper = new THREE.Group();
+  wrapper.add(clone);
+  // Matches buildRock's own sizing: a rock called with radius s reads as
+  // roughly 2*s wide, so scale the real model's own horizontal footprint to
+  // land on the same width.
+  const scale = (rock.s * 2) / tpl.maxHorizontal;
+  wrapper.scale.setScalar(scale);
+  wrapper.position.set(rock.x, 0, rock.z);
+  wrapper.rotation.y = Math.random() * Math.PI * 2;
+  scene.add(wrapper);
+  clone.traverse((child) => {
+    if (child.isMesh) {
+      child.castShadow = true;
+      child.receiveShadow = true;
+      child.frustumCulled = false;
+      child.userData.type = 'env';
+      child.userData.surface = 'rock';
+      envMeshes.push(child);
+    }
+  });
+}
+
+// Swaps real boulder models in for the hand-placed procedural rocks
+// registered in rockRegistry[0..cutoff) — the deliberately positioned ones
+// the player actually walks past, not the random far-edge dressing. Takes
+// one or more model URLs and alternates between them by index (even index
+// -> urls[0], odd -> urls[1], etc.) so the arena gets a mix of boulder types
+// instead of one shape cloned everywhere. Each variant's template is loaded
+// once (not once per instance).
+function loadRealBoulders(urls, cutoff) {
+  const list = Array.isArray(urls) ? urls : [urls];
+  const templates = [];
+  // Load each variant one at a time (not Promise.all) — same
+  // real-hardware-contention mitigation used everywhere else in this
+  // sequential load chain, rather than starting several fetches at once.
+  return list.reduce((chain, url) => {
+    return chain.then(() => loadBoulderTemplate(url)).then((tpl) => { templates.push(tpl); });
+  }, Promise.resolve()).then(() => {
+    const valid = templates.filter(Boolean);
+    if (valid.length === 0) return;
+    rockRegistry.slice(0, cutoff).forEach((rock, i) => {
+      const tpl = templates[i % list.length] || valid[0];
+      swapRockForReal(rock, tpl);
+    });
+  });
 }
 
 // damaged vehicle wreck — simple boxy chassis + cylinder wheels, tilted for a "knocked out" look
@@ -2852,22 +2877,18 @@ function loadRealStaticGunBody(weaponKey, url, fit) {
 // one confirmed-stable state (AK47 only) rather than leave the live game
 // broken. The two calls and the loader function above are left in place,
 // untouched, for whenever this gets picked back up.
-loadRealAssaultModel();
-// Env-prop chain (container/barrier/sandbag/boulder) disabled: a player
-// report after this went live was "i cant even see the ak47 now whats
-// happening and neither the crates" — i.e. not just the new props missing,
-// but things that were already working (the AK47, the procedural crates)
-// vanishing too. That symptom — previously-rendered, unrelated geometry
-// disappearing — doesn't fit a single asset failing to load; it fits a
-// WebGL context loss (e.g. from exceeding the device's texture/GPU memory
-// budget once ~9.8MB of additional textures across 4 more real models piled
-// on top of the AK47), which wipes the whole canvas, not just whatever
-// loaded last. Exactly the same unreproducible-in-this-sandbox,
-// real-hardware-only failure class as the shotgun/LMG regression earlier in
-// this file — same response: revert to the confirmed-stable state (AK47
-// only) rather than leave the live game broken while this gets investigated
-// further. The functions and call chain below are left in place, untouched,
-// for whenever this gets picked back up.
+// Container/barrier/sandbag stay DISABLED (see the commented-out chain
+// below) after the full 4-asset chain caused a real-hardware regression
+// (the AK47 and even the procedural crates disappeared — see that commit's
+// message). Re-enabling here, deliberately, is just the two boulder models
+// (~5MB combined, vs. the ~9.8MB the full chain added) as a smaller,
+// isolated step: if boulders alone are fine, the heavier container/barrier
+// assets are the more likely culprit; if boulders alone still break it,
+// that points at something else entirely (e.g. total asset count, or GPU
+// memory in general) rather than any one specific model.
+loadRealAssaultModel().then(() => {
+  return loadRealBoulders(['assets/boulder_real.glb', 'assets/boulder_real2.glb'], rockSwapCutoff);
+});
 // loadRealAssaultModel().then(() => {
 //   return loadRealEnvProp('assets/shipping_container.glb', [
 //     { x: -7, z: 6, ry: 0 },
