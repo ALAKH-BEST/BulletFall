@@ -44,21 +44,21 @@ const THEMES = {
     grass: 0x8a7a3f,
     exposure: 1.12, hemiIntensity: 0.65, sunIntensity: 1.15,
   },
-  frostbound: {
-    name: 'Frostbound',
-    swatch: ['#bcd6ea', '#4a6fa5', '#1c2a4a'],
-    sky: { top: 0x0e1730, mid: 0x3a5c8a, bottom: 0xbcd6ea },
-    fog: { color: 0x22314a, density: 0.013 },
-    sun: { light: 0xdceeff, disc: 0xeaf6ff },
-    hemi: { sky: 0xdcefff, ground: 0x2a3550 },
-    fill: 0x8fa8c9,
-    wall: 0x5c6a78,
-    floor: { base: '#d7e4ec', patchA: '#b9cbd8', patchB: '#eef6fa', speckleDark: 'rgba(90,110,130,', speckleLight: 'rgba(255,255,255,', seam: 'rgba(70,90,110,0.18)', crack: 'rgba(60,80,100,0.3)' },
-    crate1: { base: '#4a6b7a', band: '#233440' },
-    crate2: { base: '#8a4a4f', band: '#3a2024' },
-    rockTint: 0xcfe0ea,
-    grass: 0x9fb8c2,
-    exposure: 1.22, hemiIntensity: 0.75, sunIntensity: 1.25,
+  factory: {
+    name: 'Derelict Factory',
+    swatch: ['#c98a4a', '#6b5a4a', '#2a2420'],
+    sky: { top: 0x2a2420, mid: 0x5c4a3a, bottom: 0x8a7458 },
+    fog: { color: 0x3a3028, density: 0.017 },
+    sun: { light: 0xd9a86a, disc: 0xe8c296 },
+    hemi: { sky: 0xb09070, ground: 0x2a2018 },
+    fill: 0x8a7050,
+    wall: 0x4a4038,
+    floor: { base: '#71675c', patchA: '#5a5248', patchB: '#8a7e6e', speckleDark: 'rgba(30,26,20,', speckleLight: 'rgba(170,158,140,', seam: 'rgba(20,16,12,0.22)', crack: 'rgba(15,12,8,0.4)' },
+    crate1: { base: '#8a5a2f', band: '#3a2614' },
+    crate2: { base: '#5c6b4a', band: '#2a3320' },
+    rockTint: 0x9a8a74,
+    grass: 0x6a5c3f,
+    exposure: 1.05, hemiIntensity: 0.55, sunIntensity: 0.95,
   },
   nightshade: {
     name: 'Nightshade',
@@ -650,10 +650,10 @@ function addCollider(minX, minZ, maxX, maxZ, map = 'classic') {
 // the noise amplitude is kept small and is explicitly flattened over the PERCH ramp/
 // platform, the central road, and the spawn point to avoid any visible mismatch with
 // the collision the game actually simulates. One mesh, one draw call, same as before.
-// Map selection state and Arctic-only scene group must exist before terrain textures are built.
-const arcticGroup = new THREE.Group();
-scene.add(arcticGroup);
-arcticGroup.visible = false;
+// Map selection state and Factory-only scene group must exist before terrain textures are built.
+const factoryGroup = new THREE.Group();
+scene.add(factoryGroup);
+factoryGroup.visible = false;
 let activeMapKey = 'classic';
 const classicEnvironmentObjects = [];
 
@@ -757,32 +757,34 @@ floor.rotation.x = -Math.PI / 2;
 floor.receiveShadow = true;
 
 scene.add(floor);
-// Continuous pale snowfield overlay: fine granular texture plus irregular wind-scoured patches.
+// Continuous grime overlay for the factory floor: dark weathered concrete with
+// scattered oil stains and rust streaks (the Factory map's equivalent of the
+// classic map's bare sand — a distinct ground read, not just a palette swap).
 {
   const c=document.createElement('canvas'); c.width=1024; c.height=1024;
   const ctx=c.getContext('2d');
   const grad=ctx.createLinearGradient(0,0,1024,1024);
-  grad.addColorStop(0,'#e5edf2'); grad.addColorStop(.48,'#cbd7e0'); grad.addColorStop(1,'#aebdc9');
+  grad.addColorStop(0,'#3c3630'); grad.addColorStop(.48,'#2e2a24'); grad.addColorStop(1,'#242019');
   ctx.fillStyle=grad; ctx.fillRect(0,0,1024,1024);
-  for(let i=0;i<1250;i++){
-    const x=Math.random()*1024,y=Math.random()*1024,r=5+Math.random()*34;
-    const light=Math.random()>.43;
+  for(let i=0;i<70;i++){
+    const x=Math.random()*1024,y=Math.random()*1024,r=14+Math.random()*60;
+    const rust=Math.random()>.55;
     const g=ctx.createRadialGradient(x,y,0,x,y,r);
-    g.addColorStop(0,light?'rgba(255,255,255,.2)':'rgba(62,81,98,.12)');
-    g.addColorStop(1,'rgba(255,255,255,0)');
+    g.addColorStop(0,rust?'rgba(138,74,36,.22)':'rgba(10,8,6,.3)');
+    g.addColorStop(1,'rgba(0,0,0,0)');
     ctx.fillStyle=g;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();
   }
   for(let i=0;i<22000;i++){
-    const v=Math.random()>.52?255:65, a=.025+Math.random()*.045;
-    ctx.fillStyle=`rgba(${v},${v===255?255:82},${v===255?255:98},${a})`;
+    const v=Math.random()>.52?70:20, a=.025+Math.random()*.045;
+    ctx.fillStyle=`rgba(${v},${v},${v},${a})`;
     ctx.fillRect(Math.random()*1024,Math.random()*1024,1+Math.random()*2,1+Math.random()*2);
   }
-  const snowTex=new THREE.CanvasTexture(c);
-  snowTex.wrapS=snowTex.wrapT=THREE.RepeatWrapping;snowTex.repeat.set(2,2);
-  const snowMesh=new THREE.Mesh(new THREE.PlaneGeometry(CFG.arenaHalf*2,CFG.arenaHalf*2),
-    new THREE.MeshStandardMaterial({map:snowTex,color:0xffffff,roughness:.96,metalness:0,envMapIntensity:.25}));
-  snowMesh.rotation.x=-Math.PI/2;snowMesh.position.y=.045;snowMesh.receiveShadow=true;
-  arcticGroup.add(snowMesh);
+  const grimeTex=new THREE.CanvasTexture(c);
+  grimeTex.wrapS=grimeTex.wrapT=THREE.RepeatWrapping;grimeTex.repeat.set(2,2);
+  const grimeMesh=new THREE.Mesh(new THREE.PlaneGeometry(CFG.arenaHalf*2,CFG.arenaHalf*2),
+    new THREE.MeshStandardMaterial({map:grimeTex,color:0xffffff,roughness:.92,metalness:.04,envMapIntensity:.25,transparent:true,opacity:.82}));
+  grimeMesh.rotation.x=-Math.PI/2;grimeMesh.position.y=.045;grimeMesh.receiveShadow=true;
+  factoryGroup.add(grimeMesh);
 }
 
 
@@ -791,11 +793,7 @@ function buildSandTexture(theme) {
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;
   const ctx = canvas.getContext('2d');
-  const f = activeMapKey === 'arctic' ? {
-    base: '#cbd6df', patchA: '#e7eef3', patchB: '#9eafbd',
-    speckleDark: 'rgba(48,65,80,', speckleLight: 'rgba(255,255,255,',
-    seam: 'rgba(58,76,91,0.12)', crack: 'rgba(47,61,72,0.18)'
-  } : theme.floor;
+  const f = theme.floor;
 
   // base color with soft mottled gradient
   ctx.fillStyle = f.base; ctx.fillRect(0, 0, size, size);
@@ -1002,41 +1000,22 @@ haze.position.y = 1.4;
 scene.add(haze);
 
 
-// ARCTIC OUTPOST MAP LAYER — snow drifts, ridgelines, cargo stacks and field structures.
-// Instancing keeps the added silhouette detail relatively inexpensive.
-// Arctic scene group and map state are initialized before terrain setup.
-const arcticHemi = new THREE.HemisphereLight(0xdceeff, 0x526575, 1.15);
-arcticHemi.visible = false; arcticGroup.add(arcticHemi);
-const arcticSun = new THREE.DirectionalLight(0xfff4e5, 2.15);
-arcticSun.position.set(-24, 42, -18); arcticSun.castShadow = true;
-arcticSun.shadow.mapSize.set(2048,2048); arcticSun.shadow.camera.left=-48; arcticSun.shadow.camera.right=48;
-arcticSun.shadow.camera.top=48; arcticSun.shadow.camera.bottom=-48; arcticSun.shadow.bias=-0.0015;
-arcticSun.visible = false; arcticGroup.add(arcticSun);
-const snowRockMat = new THREE.MeshStandardMaterial({color:0x8997a3, roughness:0.94, metalness:0.03, flatShading:false});
-const snowCapMat = new THREE.MeshStandardMaterial({color:0xe1e9ee, roughness:0.92, metalness:0.0});
-function makeArcticRidge(x,z,sx,sy,sz,seed){
-  const geo = new THREE.IcosahedronGeometry(1, 3);
-  const p=geo.attributes.position;
-  for(let i=0;i<p.count;i++){
-    const x0=p.getX(i), y0=p.getY(i), z0=p.getZ(i);
-    const noise=Math.sin(x0*7+seed)*Math.cos(z0*8-seed*.7)*.09 + Math.sin(y0*13+seed*2)*.035;
-    p.setXYZ(i,x0*(1+noise),y0*(1+noise),z0*(1+noise));
-  }
-  geo.computeVertexNormals();
-  const mesh=new THREE.Mesh(geo,snowRockMat);
-  mesh.position.set(x,sy*.45,z); mesh.scale.set(sx,sy,sz);
-  mesh.castShadow=true; mesh.receiveShadow=true; arcticGroup.add(mesh);
-  const cap=new THREE.Mesh(new THREE.IcosahedronGeometry(1,2),snowCapMat);
-  cap.position.set(x,sy*.75,z); cap.scale.set(sx*.92,sy*.38,sz*.92);
-  cap.castShadow=true; cap.receiveShadow=true; arcticGroup.add(cap);
-}
-for(let i=0;i<20;i++){
-  const side=i%2===0?-1:1, z=-31+Math.floor(i/2)*6.4;
-  const rx=side*(31+Math.sin(i*2.3)*2), rsx=7+Math.random()*6, rsz=5+Math.random()*5;
-  makeArcticRidge(rx,z,rsx,7+Math.random()*12,rsz,i*.73);
-  addCollider(rx-rsx*.82, z-rsz*.82, rx+rsx*.82, z+rsz*.82, 'arctic');
-}
-// Weathered modular cargo containers around the forward compound.
+// FACTORY MAP LAYER — a real scanned factory building as the map's centerpiece
+// landmark, dressed with the same cargo-container/concrete-barrier cover used by
+// every other map. The building itself is loaded on demand by loadFactoryModel()
+// (see below) the first time a player picks this map in the battlefield picker,
+// not fetched eagerly at startup — it's by far the heaviest real asset in this
+// project (~11MB, ~114k triangles), and this project has hit real-hardware
+// GPU/texture-memory regressions from stacking real assets more than once, so it
+// stays opt-in rather than adding load to every page visit.
+const factoryHemi = new THREE.HemisphereLight(0xb09070, 0x2a2018, 0.95);
+factoryHemi.visible = false; factoryGroup.add(factoryHemi);
+const factorySun = new THREE.DirectionalLight(0xd9a86a, 1.75);
+factorySun.position.set(-20, 38, -14); factorySun.castShadow = true;
+factorySun.shadow.mapSize.set(2048,2048); factorySun.shadow.camera.left=-48; factorySun.shadow.camera.right=48;
+factorySun.shadow.camera.top=48; factorySun.shadow.camera.bottom=-48; factorySun.shadow.bias=-0.0015;
+factorySun.visible = false; factoryGroup.add(factorySun);
+// Weathered modular cargo containers scattered around the factory yard.
 const cargoMat = [
  new THREE.MeshStandardMaterial({color:0x343d45,roughness:.86,metalness:.35}),
  new THREE.MeshStandardMaterial({color:0x4b555d,roughness:.88,metalness:.25}),
@@ -1047,47 +1026,33 @@ for(let i=0;i<14;i++){
  const side=i%2===0?-1:1, row=Math.floor(i/2);
  const mesh=new THREE.Mesh(cargoGeo,cargoMat[i%cargoMat.length]);
  mesh.position.set(side*(8.5+(row%3)*2.2),1.15,-8-row*3.2);
- addCollider(mesh.position.x-2.55, mesh.position.z-1.25, mesh.position.x+2.55, mesh.position.z+1.25, 'arctic');
+ addCollider(mesh.position.x-2.55, mesh.position.z-1.25, mesh.position.x+2.55, mesh.position.z+1.25, 'factory');
  mesh.rotation.y=side*.05+(i%3)*.035; mesh.castShadow=true;mesh.receiveShadow=true;
- arcticGroup.add(mesh);
+ factoryGroup.add(mesh);
  const ribGeo=new THREE.BoxGeometry(.08,2.18,2.2);
  for(let r=0;r<9;r++){
    const rib=new THREE.Mesh(ribGeo,cargoMat[0]);
    rib.position.set(mesh.position.x-2.1+r*.52,1.15,mesh.position.z);
-   rib.castShadow=true; arcticGroup.add(rib);
+   rib.castShadow=true; factoryGroup.add(rib);
  }
 }
-// Defensive concrete blast barriers and a central command shelter.
+// Defensive concrete blast barriers lining the approach to the factory building.
 const concreteMat=new THREE.MeshStandardMaterial({color:0x59636a,roughness:.95});
 for(let i=0;i<8;i++){
  const b=new THREE.Mesh(new THREE.BoxGeometry(2.6,1.05,.75),concreteMat);
  b.position.set(-6.8+i*1.95,.52,-4.2); b.rotation.y=(i%2?-.04:.04);
- b.castShadow=true;b.receiveShadow=true;arcticGroup.add(b);
- addCollider(b.position.x-1.35, b.position.z-.55, b.position.x+1.35, b.position.z+.55, 'arctic');
+ b.castShadow=true;b.receiveShadow=true;factoryGroup.add(b);
+ addCollider(b.position.x-1.35, b.position.z-.55, b.position.x+1.35, b.position.z+.55, 'factory');
 }
-const shelter=new THREE.Mesh(new THREE.BoxGeometry(8,3.5,5.2),concreteMat);
-shelter.position.set(0,1.75,-16); shelter.castShadow=true;shelter.receiveShadow=true; arcticGroup.add(shelter);
-addCollider(-4.25, -18.8, 4.25, -13.0, 'arctic');
-const roof=new THREE.Mesh(new THREE.BoxGeometry(8.7,.3,5.8),snowCapMat);
-roof.position.set(0,3.62,-16);roof.castShadow=true;arcticGroup.add(roof);
-const doorMat=new THREE.MeshStandardMaterial({color:0x151e25,roughness:.7,metalness:.25});
-const door=new THREE.Mesh(new THREE.BoxGeometry(1.5,2.5,.12),doorMat);
-door.position.set(0,1.25,-13.35);arcticGroup.add(door);
-const beaconMat=new THREE.MeshStandardMaterial({color:0xff6c35,emissive:0xc53812,emissiveIntensity:2.2});
-for(const x of [-3.4,3.4]){
- const beacon=new THREE.Mesh(new THREE.BoxGeometry(.16,.55,.16),beaconMat);
- beacon.position.set(x,2.4,-13.3);arcticGroup.add(beacon);
-}
-
-
-// Snow berms around the approach create a visible transition from the spawn to the outpost.
-const bermMat=new THREE.MeshStandardMaterial({color:0xd4dfe6,roughness:1});
+// Rubble piles around the approach — this map's equivalent of the old snow berms,
+// marking a visible transition from the spawn toward the factory building.
+const rubbleMat=new THREE.MeshStandardMaterial({color:0x4a4238,roughness:1});
 for(let i=0;i<10;i++){
   const side=i%2===0?-1:1, z=-3-Math.floor(i/2)*3.6;
-  const berm=new THREE.Mesh(new THREE.IcosahedronGeometry(1,3),bermMat);
-  berm.position.set(side*(10.5+(i%3)*1.3),.6,z);
-  berm.scale.set(2.2,1.05,1.65);berm.castShadow=true;berm.receiveShadow=true;arcticGroup.add(berm);
- addCollider(berm.position.x-1.8, berm.position.z-1.35, berm.position.x+1.8, berm.position.z+1.35, 'arctic');
+  const rubble=new THREE.Mesh(new THREE.IcosahedronGeometry(1,2),rubbleMat);
+  rubble.position.set(side*(10.5+(i%3)*1.3),.6,z);
+  rubble.scale.set(2.2,1.05,1.65);rubble.castShadow=true;rubble.receiveShadow=true;factoryGroup.add(rubble);
+ addCollider(rubble.position.x-1.8, rubble.position.z-1.35, rubble.position.x+1.8, rubble.position.z+1.35, 'factory');
 }
 
 // Boundary walls
@@ -1626,6 +1591,67 @@ function loadRealEnvProp(url, instances, opts) {
     });
 }
 
+// Factory map centerpiece — a real scanned factory building, loaded on demand (not
+// at startup) the first time the player picks the Factory map in the battlefield
+// picker, and cached so picking it again doesn't re-fetch. Deliberately opt-in: at
+// ~11MB/~114k triangles it's the heaviest real asset in this project, and loading
+// it only for players who actually choose this map avoids adding that cost to
+// every page visit the way the always-on classic-map assets do.
+// Credit: "old factory FREE" by dasy444 (https://sketchfab.com/dasy444), Sketchfab
+// Standard license — see README for details.
+let factoryModelPromise = null;
+function loadFactoryModel() {
+  if (factoryModelPromise) return factoryModelPromise;
+  if (typeof THREE.GLTFLoader !== 'function') return Promise.resolve();
+  factoryModelPromise = fetch('assets/old_factory.glb')
+    .then((res) => { if (!res.ok) throw new Error('HTTP ' + res.status); return res.arrayBuffer(); })
+    .then((buffer) => new Promise((resolve, reject) => {
+      new THREE.GLTFLoader().parse(buffer, '', resolve, reject);
+    }))
+    .then((gltf) => {
+      const template = gltf.scene;
+      // Center on its own footprint and rest on Y=0, same as every other real
+      // prop loader — the raw export isn't centered/grounded for drop-in use.
+      const box = new THREE.Box3().setFromObject(template);
+      const center = box.getCenter(new THREE.Vector3());
+      const rawSize = box.getSize(new THREE.Vector3());
+      template.position.x -= center.x;
+      template.position.z -= center.z;
+      template.position.y -= box.min.y;
+
+      // Scale so the building's longer horizontal dimension reads as a strong
+      // landmark without dominating the whole arena (CFG.arenaHalf*2 = 72 wide).
+      const TARGET_FOOTPRINT = 22;
+      const scale = TARGET_FOOTPRINT / Math.max(rawSize.x, rawSize.z);
+      const wrapper = new THREE.Group();
+      wrapper.add(template);
+      wrapper.scale.setScalar(scale);
+      wrapper.position.set(0, 0, -20);
+      factoryGroup.add(wrapper);
+      wrapper.updateMatrixWorld(true);
+
+      template.traverse((child) => {
+        if (child.isMesh) {
+          child.castShadow = true;
+          child.receiveShadow = true;
+          child.frustumCulled = false;
+        }
+      });
+
+      // Single footprint collider for the whole building (same rotation-aware
+      // half-extent math used by loadRealEnvProp) — it's a landmark to fight
+      // around, not an explorable interior, same role the old Arctic map's
+      // command shelter played.
+      const w = rawSize.x * scale, d = rawSize.z * scale;
+      const pad = 0.3;
+      addCollider(wrapper.position.x - w / 2 - pad, wrapper.position.z - d / 2 - pad, wrapper.position.x + w / 2 + pad, wrapper.position.z + d / 2 + pad, 'factory');
+    })
+    .catch((err) => {
+      console.error('Factory map: failed to load assets/old_factory.glb — the map will show without the building.', err);
+    });
+  return factoryModelPromise;
+}
+
 // Fetches+parses one boulder model and returns a ready-to-clone template
 // (centered on X/Z, rested on Y=0, with its raw horizontal footprint for
 // sizing) — shared by loadRealBoulders below for each of the (possibly
@@ -2023,7 +2049,7 @@ applyTheme(currentThemeKey);
 /* Map select UI (mission briefing screen) */
 const THEME_BLURBS = {
   dustline: 'Sun-scorched canyon ridgelines and crumbling supply outposts.',
-  frostbound: 'Frozen ravines, whiteout wind and razor-thin visibility.',
+  factory: 'A collapsing industrial complex, rusted machinery and dust-choked light.',
   nightshade: 'Neon-lit ruins under a bleeding violet sky.',
 };
 const themeSwatchesEl = document.getElementById('theme-swatches');
@@ -4981,32 +5007,36 @@ document.getElementById('start-btn').addEventListener('click', () => {
 function selectMapChoice(key) {
   pendingMapChoice = key;
   document.getElementById('map-choice-classic').classList.toggle('selected', key === 'classic');
-  document.getElementById('map-choice-arctic').classList.toggle('selected', key === 'arctic');
+  document.getElementById('map-choice-factory').classList.toggle('selected', key === 'factory');
+  // Kick off the factory building's (large, ~11MB) fetch as soon as it's picked in
+  // the list, giving it a head start while the player is still on the picker/
+  // warning dialog. loadFactoryModel() is cached, so this never double-fetches.
+  if (key === 'factory') loadFactoryModel();
 }
 document.getElementById('map-choice-classic').addEventListener('click', () => selectMapChoice('classic'));
-document.getElementById('map-choice-arctic').addEventListener('click', () => selectMapChoice('arctic'));
+document.getElementById('map-choice-factory').addEventListener('click', () => selectMapChoice('factory'));
 document.getElementById('map-choice-cancel').addEventListener('click', () => {
   document.getElementById('map-picker').classList.add('hidden');
 });
 document.getElementById('map-choice-confirm').addEventListener('click', () => {
   document.getElementById('map-picker').classList.add('hidden');
   activeMapKey = pendingMapChoice;
-  const useArctic = activeMapKey === 'arctic';
+  const useFactory = activeMapKey === 'factory';
   // Switch the sky, fog, ambient/direct lighting and palette with the selected theatre.
-  if (typeof applyTheme === 'function') applyTheme(useArctic ? 'frostbound' : 'dustline');
-  arcticGroup.visible = useArctic;
-  // Keep Dustline Canyon intact, but hide its arena dressing when Arctic is selected.
-  if (typeof floor !== 'undefined') floor.visible = !useArctic;
-  if (typeof haze !== 'undefined') haze.visible = !useArctic;
-  if (typeof envMeshes !== 'undefined') envMeshes.forEach(m => { m.visible = !useArctic; });
-  if (typeof grassInst !== 'undefined') grassInst.visible = !useArctic;
-  if (typeof pebbleInst !== 'undefined') pebbleInst.visible = !useArctic;
-  if (typeof shaleInst !== 'undefined') shaleInst.visible = !useArctic;
-  // Keep the classic map's atmospheric road/decals out of the snowfield.
+  if (typeof applyTheme === 'function') applyTheme(useFactory ? 'factory' : 'dustline');
+  factoryGroup.visible = useFactory;
+  // Keep Dustline Canyon intact, but hide its arena dressing when Factory is selected.
+  if (typeof floor !== 'undefined') floor.visible = !useFactory;
+  if (typeof haze !== 'undefined') haze.visible = !useFactory;
+  if (typeof envMeshes !== 'undefined') envMeshes.forEach(m => { m.visible = !useFactory; });
+  if (typeof grassInst !== 'undefined') grassInst.visible = !useFactory;
+  if (typeof pebbleInst !== 'undefined') pebbleInst.visible = !useFactory;
+  if (typeof shaleInst !== 'undefined') shaleInst.visible = !useFactory;
+  // Keep the classic map's atmospheric road/decals out of the other map.
   scene.traverse(o => {
-    if (o.userData && o.userData.classicOnly) o.visible = !useArctic;
+    if (o.userData && o.userData.classicOnly) o.visible = !useFactory;
   });
-  if (useArctic) {
+  if (useFactory) {
     document.getElementById('graphics-warning').classList.remove('hidden');
   } else {
     startGame();

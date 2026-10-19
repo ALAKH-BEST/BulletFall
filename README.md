@@ -32,6 +32,7 @@ assets/concrete_barrier.glb    # real Jersey-style concrete road barrier, lining
 assets/sandbag_wall.glb        # real stacked-sandbag model, layered over the procedural sandbag positions
 assets/boulder_real.glb        # real boulder model (Boulder 01, converted from Poly Haven's .blend source), swapped in for the hand-placed procedural rocks
 assets/boulder_real2.glb       # second real boulder variant (Namaqualand Boulder 03), alternated with boulder_real.glb for visual variety
+assets/old_factory.glb         # real scanned factory building, the Derelict Factory map's centerpiece — loaded on demand, not at startup
 ```
 
 This used to be one single ~18.8MB HTML file with the AK47 model embedded inline as a base64 string. It's now split into normal files, with models as their own binary assets (fetched at runtime instead of base64-baked into the page — base64 always inflates binary size by about a third, so this is smaller too), so the repo reads and diffs like a normal web project instead of one giant blob.
@@ -52,6 +53,17 @@ Killed bots have a chance to drop a pickup at their feet — an ammo crate or a 
 - **Medikit** — heals the player 35 HP. Left alone if already at full health.
 
 Drops despawn after ~22 seconds if not collected (fading out just before they do), so the arena doesn't fill up with permanent clutter over a long run.
+
+## Maps
+
+The battlefield picker (reached after pressing Deploy) offers two maps, sharing all progression, weapons and the wave system:
+
+- **Dustline Canyon** *(default)* — the original sun-scorched canyon arena.
+- **Derelict Factory** *(high graphics)* — an abandoned industrial complex, centered on a real scanned factory building standing in for the old Arctic Outpost map. It's the heaviest real asset in this project (~11MB, ~114k triangles), so unlike every other real model here it is **not** fetched at startup — `loadFactoryModel()` only runs the first time a player actually picks this map in the picker (cached after that), so players who never choose it never pay for the download. A performance warning dialog (the same one the old Arctic map used) is shown before deployment.
+
+The factory building itself is a single landmark to fight around, not an explorable interior — same role the old Arctic map's command shelter played, just considerably bigger. Its footprint uses one collider sized from the model's own measured bounding box, the same approach used for every other real env prop here.
+
+**Licensing note on the factory model**: unlike every other real asset in this project (all CC0 or CC-BY, both of which explicitly permit redistribution), "old factory FREE" by dasy444 is Sketchfab **Standard**-licensed, which restricts making the model available as a standalone, extractable file — and committing `assets/old_factory.glb` straight into this public repo, the same way every other asset here is shipped, is arguably exactly that. It's included anyway at the repo owner's explicit instruction, with the license and source noted here for transparency. Swap in a CC0/CC-BY model (Poly Haven is a reliable source for CC0 industrial assets) if that tradeoff matters for your use.
 
 ## Environment props
 
@@ -82,5 +94,6 @@ Both boulders came from [Poly Haven](https://polyhaven.com/a/boulder_01) as `.bl
 - "Sandbag Wall 04" by Pypunk (https://sketchfab.com/3d-models/sandbag-wall-04-a5ea125e9d534b54a3185f349da6aabd), licensed CC Attribution 4.0.
 - "Boulder 01" from Poly Haven (https://polyhaven.com/a/boulder_01), CC0 — no attribution required, credited here anyway.
 - "Namaqualand Boulder 03" from Poly Haven (https://polyhaven.com/a/namaqualand_boulder_03), CC0 — no attribution required, credited here anyway.
+- "old factory FREE" by dasy444 (https://sketchfab.com/3d-models/old-factory-free-9d0acdbe78944c098689c0d34853e57b), Sketchfab Standard license — see the licensing note under Maps above.
 - Three.js r128, MIT License.
 - GLTFLoader adapted from three-gltf-loader v1.111.0 by Rich Tibbett / mrdoob, MIT License.
