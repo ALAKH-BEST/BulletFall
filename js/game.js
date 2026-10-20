@@ -1517,6 +1517,83 @@ function buildSandbagLine(x, z, len, rotY) {
 buildSandbagLine(-19, -19, 4.5, 0.9);
 buildSandbagLine(-27, -16, 4, 0.15);
 
+// Approximate on-disk sizes (bytes) of the real assets fetched at startup or
+// on map selection — used only to weight the deployment loading screen's
+// progress bar so files of very different sizes (the AK47 alone is ~5x a
+// boulder) fill it proportionally instead of jumping unevenly. Not
+// load-bearing: if a file's actual size ever drifts from this, the response's
+// own Content-Length header is preferred when present, and the bar is just
+// slightly uneven if neither is available — nothing breaks.
+const ASSET_SIZES = {
+  'assets/ak47.glb': 13804592,
+  'assets/boulder_real.glb': 2609956,
+  'assets/boulder_real2.glb': 2384680,
+  'assets/shipping_container.glb': 5627592,
+  'assets/old_factory.glb': 11398692,
+};
+
+// Tracks download progress (0..1 per URL) across every real asset fetched
+// through fetchArrayBufferWithProgress below, independent of which loader
+// function is doing the fetching. The deployment loading screen subscribes
+// to this to drive its progress bar — see beginDeployment() near the map
+// picker UI wiring.
+const AssetLoadTracker = {
+  progress: {},
+  listeners: [],
+  report(url, loaded, total) {
+    const denom = total || ASSET_SIZES[url] || loaded || 1;
+    this.progress[url] = Math.max(0, Math.min(1, loaded / denom));
+    this.listeners.forEach((fn) => fn());
+  },
+  // Average progress across just the given URLs (the ones relevant to the
+  // map currently being deployed into) — any other in-flight fetch doesn't
+  // affect it. URLs not yet reported at all count as 0 progress.
+  overallFor(urls) {
+    if (!urls.length) return 1;
+    const sum = urls.reduce((s, u) => s + (this.progress[u] || 0), 0);
+    return sum / urls.length;
+  },
+  onChange(fn) { this.listeners.push(fn); },
+};
+
+// Streams a fetch response via its reader instead of awaiting arrayBuffer()
+// directly, purely so AssetLoadTracker can report real incremental progress
+// as bytes arrive — the resolved value is the same ArrayBuffer either way,
+// so every existing caller (loadRealEnvProp, loadBoulderTemplate,
+// loadRealAssaultModel, loadFactoryModel) is a drop-in swap with no other
+// change in behavior. Falls back to a plain arrayBuffer() read (progress
+// just jumps straight to 100% for that file) if the body can't be streamed
+// or no length is known at all.
+function fetchArrayBufferWithProgress(url) {
+  return fetch(url).then((res) => {
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const total = parseInt(res.headers.get('Content-Length') || '0', 10) || ASSET_SIZES[url] || 0;
+    if (!res.body || typeof res.body.getReader !== 'function') {
+      return res.arrayBuffer().then((buf) => {
+        AssetLoadTracker.report(url, buf.byteLength, total || buf.byteLength);
+        return buf;
+      });
+    }
+    const reader = res.body.getReader();
+    const chunks = [];
+    let received = 0;
+    const pump = () => reader.read().then(({ done, value }) => {
+      if (done) {
+        const out = new Uint8Array(received);
+        let offset = 0;
+        chunks.forEach((c) => { out.set(c, offset); offset += c.length; });
+        AssetLoadTracker.report(url, received, total || received);
+        return out.buffer;
+      }
+      chunks.push(value);
+      received += value.length;
+      AssetLoadTracker.report(url, received, total);
+      return pump();
+    });
+    return pump();
+  });
+}
+
 // Real sourced environment props (shipping container, concrete barrier,
 // stacked sandbag wall) layered in alongside the procedural geometry above,
 // using the same fetch + THREE.GLTFLoader().parse() pattern already proven
@@ -1529,8 +1606,7 @@ buildSandbagLine(-27, -16, 4, 0.15);
 function loadRealEnvProp(url, instances, opts) {
   opts = opts || {};
   if (typeof THREE.GLTFLoader !== 'function') return Promise.resolve();
-  return fetch(url)
-    .then((res) => { if (!res.ok) throw new Error('HTTP ' + res.status); return res.arrayBuffer(); })
+  return fetchArrayBufferWithProgress(url)
     .then((buffer) => new Promise((resolve, reject) => {
       new THREE.GLTFLoader().parse(buffer, '', resolve, reject);
     }))
@@ -1603,8 +1679,7 @@ let factoryModelPromise = null;
 function loadFactoryModel() {
   if (factoryModelPromise) return factoryModelPromise;
   if (typeof THREE.GLTFLoader !== 'function') return Promise.resolve();
-  factoryModelPromise = fetch('assets/old_factory.glb')
-    .then((res) => { if (!res.ok) throw new Error('HTTP ' + res.status); return res.arrayBuffer(); })
+  factoryModelPromise = fetchArrayBufferWithProgress('assets/old_factory.glb')
     .then((buffer) => new Promise((resolve, reject) => {
       new THREE.GLTFLoader().parse(buffer, '', resolve, reject);
     }))
@@ -1658,8 +1733,7 @@ function loadFactoryModel() {
 // several) boulder variants it swaps in.
 function loadBoulderTemplate(url) {
   if (typeof THREE.GLTFLoader !== 'function') return Promise.resolve(null);
-  return fetch(url)
-    .then((res) => { if (!res.ok) throw new Error('HTTP ' + res.status); return res.arrayBuffer(); })
+  return fetchArrayBufferWithProgress(url)
     .then((buffer) => new Promise((resolve, reject) => {
       new THREE.GLTFLoader().parse(buffer, '', resolve, reject);
     }))
@@ -2788,11 +2862,7 @@ function loadRealAssaultModel() {
   // used below to make sure the shotgun/LMG real models only start
   // downloading after this one (by far the biggest asset) is fully settled,
   // instead of all three competing for bandwidth/memory at once on page load.
-  return fetch('assets/ak47.glb')
-    .then((res) => {
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      return res.arrayBuffer();
-    })
+  return fetchArrayBufferWithProgress('assets/ak47.glb')
     .then((buffer) => new Promise((resolveOuter) => {
       new THREE.GLTFLoader().parse(buffer, '', (gltf) => {
     const realGroup = new THREE.Group();
@@ -2950,7 +3020,10 @@ function loadRealStaticGunBody(weaponKey, url, fit) {
 // Bringing the shipping container back next, still one asset at a time —
 // if THIS breaks it, the container specifically is implicated; if not,
 // barrier and sandbag can go back one at a time the same way.
-loadRealAssaultModel().then(() => {
+// Captured so the deployment loading screen (see beginDeployment() near the
+// map picker UI wiring) can wait on this chain actually settling instead of
+// just hoping it's done by the time the player reaches gameplay.
+const mainAssetsPromise = loadRealAssaultModel().then(() => {
   return loadRealBoulders(['assets/boulder_real.glb', 'assets/boulder_real2.glb'], rockSwapCutoff);
 }).then(() => {
   return loadRealEnvProp('assets/shipping_container.glb', [
@@ -5000,6 +5073,101 @@ function startGame() {
   if (!isTouch) canvasEl.requestPointerLock();
 }
 
+// Deployment loading screen — shown between confirming a map choice and
+// actual gameplay, gating startGame() on the real assets that map actually
+// needs having genuinely finished (not just hoping they're already done by
+// the time the player clicks through the menu). The flavor status line
+// ticks through a fixed list on a timer so it always feels alive; the bar
+// fill itself is real, driven by AssetLoadTracker's byte-level progress.
+const DEPLOY_STATUS_LINES_CORE = [
+  'Streaming rifle rig...',
+  'Placing boulders...',
+  'Raising cargo containers...',
+  'Calibrating optics...',
+];
+const DEPLOY_STATUS_LINES_FACTORY = [
+  'Streaming rifle rig...',
+  'Constructing factory shell...',
+  'Raising cargo containers...',
+  'Scattering debris...',
+];
+const DEPLOY_TIPS = [
+  "TIP: Reload before your magazine runs dry — there's no mid-reload cancel.",
+  'TIP: Headshots deal bonus damage — aim high when you can.',
+  'TIP: The LMG trades mobility for a tighter spread while deployed.',
+  'TIP: Ammo crates only refill your currently equipped weapon.',
+  "TIP: The combat knife swings fast but only reaches short range.",
+  'TIP: Sprinting locks out firing and ADS — plant your feet to shoot straight.',
+];
+function beginDeployment() {
+  const loadingEl = document.getElementById('loading-screen');
+  if (!loadingEl) { startGame(); return; } // defensive: markup missing, don't block play
+  const barFillEl = document.getElementById('loading-screen-bar-fill');
+  const pctEl = document.getElementById('loading-screen-pct');
+  const statusEl = document.getElementById('loading-screen-status');
+  const tipEl = document.getElementById('loading-screen-tip');
+  loadingEl.classList.remove('hidden');
+
+  const useFactory = activeMapKey === 'factory';
+  const relevantUrls = ['assets/ak47.glb', 'assets/boulder_real.glb', 'assets/boulder_real2.glb', 'assets/shipping_container.glb']
+    .concat(useFactory ? ['assets/old_factory.glb'] : []);
+  const statusLines = useFactory ? DEPLOY_STATUS_LINES_FACTORY : DEPLOY_STATUS_LINES_CORE;
+
+  tipEl.textContent = DEPLOY_TIPS[Math.floor(Math.random() * DEPLOY_TIPS.length)];
+  statusEl.textContent = statusLines[0];
+  let statusIdx = 0;
+  const statusTimer = setInterval(() => {
+    statusIdx = (statusIdx + 1) % statusLines.length;
+    statusEl.textContent = statusLines[statusIdx];
+  }, 700);
+
+  let displayPct = 0; // smoothed value actually drawn — eased toward the real
+                       // target each frame so the bar never jumps or stalls,
+                       // even when a fetch resolves instantly from cache.
+  let settled = false;
+  let finished = false;
+
+  // The animation loop ONLY drives the visual fill. Whether the game
+  // actually starts is decided separately in finish(), below — tying
+  // startGame() to requestAnimationFrame convergence would mean a slow
+  // device, a low-power/throttled tab, or a backgrounded window (browsers
+  // routinely drop background-tab rAF to ~1fps or less) could leave the
+  // player stuck on a finished download for no reason.
+  function tick() {
+    if (finished) return;
+    const target = settled ? 1 : AssetLoadTracker.overallFor(relevantUrls);
+    displayPct += (target - displayPct) * 0.12;
+    if (Math.abs(target - displayPct) < 0.002) displayPct = target;
+    const shown = Math.round(displayPct * 100);
+    barFillEl.style.width = shown + '%';
+    pctEl.textContent = shown + '%';
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+
+  function finish() {
+    if (finished) return;
+    finished = true;
+    clearInterval(statusTimer);
+    barFillEl.style.width = '100%';
+    pctEl.textContent = '100%';
+    loadingEl.classList.add('hidden');
+    startGame();
+  }
+
+  const assetsReady = Promise.all([mainAssetsPromise, useFactory ? loadFactoryModel() : Promise.resolve()]);
+  // A short minimum display time so the screen always reads as an
+  // intentional beat rather than a flash, even when everything was already
+  // cached/loaded by the time the player reaches it.
+  const minDisplay = new Promise((resolve) => setTimeout(resolve, 500));
+  Promise.all([assetsReady, minDisplay]).then(() => { settled = true; finish(); });
+  // Defensive hard cap — every loader above already catches its own
+  // fetch/parse errors and resolves (never rejects) on failure, so this
+  // should never actually be needed, but a loading screen that could in
+  // theory hang forever is worse than one that occasionally proceeds early.
+  setTimeout(() => { settled = true; finish(); }, 20000);
+}
+
 let pendingMapChoice = 'classic';
 document.getElementById('start-btn').addEventListener('click', () => {
   document.getElementById('map-picker').classList.remove('hidden');
@@ -5039,12 +5207,12 @@ document.getElementById('map-choice-confirm').addEventListener('click', () => {
   if (useFactory) {
     document.getElementById('graphics-warning').classList.remove('hidden');
   } else {
-    startGame();
+    beginDeployment();
   }
 });
 document.getElementById('graphics-continue').addEventListener('click', () => {
   document.getElementById('graphics-warning').classList.add('hidden');
-  startGame();
+  beginDeployment();
 });
 document.getElementById('graphics-cancel').addEventListener('click', () => {
   document.getElementById('graphics-warning').classList.add('hidden');

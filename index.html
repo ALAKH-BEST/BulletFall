@@ -54,6 +54,27 @@
   </div>
 </div>
 
+<div id="loading-screen" class="loading-screen hidden" role="dialog" aria-modal="true" aria-labelledby="loading-screen-title">
+  <div class="loading-screen-grid"></div>
+  <div class="loading-screen-scan"></div>
+  <div class="loading-screen-vignette"></div>
+  <div class="loading-screen-content">
+    <div class="loading-reticle">
+      <div class="loading-reticle-ring loading-reticle-ring-outer"></div>
+      <div class="loading-reticle-ring loading-reticle-ring-inner"></div>
+      <div class="loading-reticle-tick t"></div>
+      <div class="loading-reticle-tick b"></div>
+      <div class="loading-reticle-tick l"></div>
+      <div class="loading-reticle-tick r"></div>
+      <div class="loading-reticle-pct" id="loading-screen-pct">0%</div>
+    </div>
+    <h2 id="loading-screen-title">DEPLOYING</h2>
+    <div class="loading-screen-status" id="loading-screen-status">Establishing uplink...</div>
+    <div class="loading-screen-bar"><div class="loading-screen-bar-fill" id="loading-screen-bar-fill"></div></div>
+    <div class="loading-screen-tip" id="loading-screen-tip"></div>
+  </div>
+</div>
+
 <div id="app"></div>
 
 <!-- crosshair / feedback -->
