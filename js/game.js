@@ -1686,14 +1686,40 @@ function loadFactoryModel() {
     }))
     .then((gltf) => {
       const template = gltf.scene;
-      // Center on its own footprint and rest on Y=0, same as every other real
-      // prop loader — the raw export isn't centered/grounded for drop-in use.
       const box = new THREE.Box3().setFromObject(template);
       const center = box.getCenter(new THREE.Vector3());
       const rawSize = box.getSize(new THREE.Vector3());
+
+      // Ground on the real walkable floor, not the raw bounding-box minimum.
+      // This scan has a sliver of below-floor noise (loose scan debris/
+      // foundation scrap — under 1% of all vertices) sitting well below the
+      // actual floor, which drags box.min.y far lower than where the floor
+      // really is. Using that minimum put the floor ~2.2 units (so, scaled,
+      // several units once this model is stretched to arena size) below the
+      // player's feet, so walking "into" the building actually meant walking
+      // into its sub-floor/foundation, nose-first into the underside of the
+      // structure above — exactly the broken clipped-into-a-beam look this
+      // was producing. Sampling vertex heights and taking a low percentile
+      // finds the real floor instead; the sparse noise can't skew it.
+      template.updateMatrixWorld(true);
+      const sampledY = [];
+      const vTemp = new THREE.Vector3();
+      template.traverse((child) => {
+        if (child.isMesh && child.geometry && child.geometry.attributes.position) {
+          const posAttr = child.geometry.attributes.position;
+          const step = Math.max(1, Math.floor(posAttr.count / 3000));
+          for (let i = 0; i < posAttr.count; i += step) {
+            vTemp.fromBufferAttribute(posAttr, i).applyMatrix4(child.matrixWorld);
+            sampledY.push(vTemp.y);
+          }
+        }
+      });
+      sampledY.sort((a, b) => a - b);
+      const floorY = sampledY.length ? sampledY[Math.floor(sampledY.length * 0.02)] : box.min.y;
+
       template.position.x -= center.x;
       template.position.z -= center.z;
-      template.position.y -= box.min.y;
+      template.position.y -= floorY;
 
       // This model IS the map, not a landmark dropped into one — scale its
       // longer horizontal dimension to span the full arena (CFG.arenaHalf*2)
