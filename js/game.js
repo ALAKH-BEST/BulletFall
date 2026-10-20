@@ -1742,14 +1742,28 @@ function loadFactoryModel() {
         }
       });
 
-      // No blocking footprint collider here on purpose — at this scale the
-      // building's footprint IS the arena, so a solid box over it would wall
-      // the player out of their own map. The existing arena-bounds clamp
-      // already keeps the player inside the (now building-sized) play area;
-      // individual columns/walls are visual only, same collision fidelity as
-      // every other real-mesh prop in this game (coarse AABB per object, not
-      // per-triangle), so this is a deliberate simplicity tradeoff, not an
-      // oversight.
+      // No single footprint collider over the whole building — at this scale
+      // that would wall the player out of their own map, and the existing
+      // arena-bounds clamp already keeps them inside the (now
+      // building-sized) play area. But fully walk-through walls read as
+      // broken right where it's most obvious: the two long interior walls
+      // flanking the entrance hall the player spawns into. Their positions
+      // were located by sampling this scan's wall-facing geometry offline
+      // (density of near-vertical-normal triangles across the floor-height
+      // band), so these two coarse colliders line up with what's actually
+      // drawn there. A gap is left at the middle of each on purpose — a
+      // real doorway through to the rest of the building, not a dead end.
+      // Coarse AABB only, same fidelity as every other real prop here, not
+      // a full per-wall reconstruction of the whole scan.
+      const innerWallRawX = [-3.70, 3.67];
+      const wallHalfThickness = 0.9;
+      const gapHalfWidth = 5;
+      const H = CFG.arenaHalf;
+      innerWallRawX.forEach((rawX) => {
+        const wx = (rawX - center.x) * scale;
+        addCollider(wx - wallHalfThickness, -H, wx + wallHalfThickness, -gapHalfWidth, 'factory');
+        addCollider(wx - wallHalfThickness, gapHalfWidth, wx + wallHalfThickness, H, 'factory');
+      });
     })
     .catch((err) => {
       console.error('Factory map: failed to load assets/old_factory.glb — the map will show without the building.', err);
