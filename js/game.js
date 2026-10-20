@@ -1000,8 +1000,9 @@ haze.position.y = 1.4;
 scene.add(haze);
 
 
-// FACTORY MAP LAYER — a real scanned factory building as the map's centerpiece
-// landmark, dressed with the same cargo-container/concrete-barrier cover used by
+// FACTORY MAP LAYER — a real scanned factory building scaled to BE the map
+// itself (the whole arena plays out inside/around it, not next to it),
+// dressed with the same cargo-container/concrete-barrier cover used by
 // every other map. The building itself is loaded on demand by loadFactoryModel()
 // (see below) the first time a player picks this map in the battlefield picker,
 // not fetched eagerly at startup — it's by far the heaviest real asset in this
@@ -1694,14 +1695,16 @@ function loadFactoryModel() {
       template.position.z -= center.z;
       template.position.y -= box.min.y;
 
-      // Scale so the building's longer horizontal dimension reads as a strong
-      // landmark without dominating the whole arena (CFG.arenaHalf*2 = 72 wide).
-      const TARGET_FOOTPRINT = 22;
-      const scale = TARGET_FOOTPRINT / Math.max(rawSize.x, rawSize.z);
+      // This model IS the map, not a landmark dropped into one — scale its
+      // longer horizontal dimension to span the full arena (CFG.arenaHalf*2)
+      // and center it on the arena origin, same as the floor/sky/fog rig
+      // every other map builds around.
+      const ARENA_SPAN = CFG.arenaHalf * 2;
+      const scale = ARENA_SPAN / Math.max(rawSize.x, rawSize.z);
       const wrapper = new THREE.Group();
       wrapper.add(template);
       wrapper.scale.setScalar(scale);
-      wrapper.position.set(0, 0, -20);
+      wrapper.position.set(0, 0, 0);
       factoryGroup.add(wrapper);
       wrapper.updateMatrixWorld(true);
 
@@ -1713,13 +1716,14 @@ function loadFactoryModel() {
         }
       });
 
-      // Single footprint collider for the whole building (same rotation-aware
-      // half-extent math used by loadRealEnvProp) — it's a landmark to fight
-      // around, not an explorable interior, same role the old Arctic map's
-      // command shelter played.
-      const w = rawSize.x * scale, d = rawSize.z * scale;
-      const pad = 0.3;
-      addCollider(wrapper.position.x - w / 2 - pad, wrapper.position.z - d / 2 - pad, wrapper.position.x + w / 2 + pad, wrapper.position.z + d / 2 + pad, 'factory');
+      // No blocking footprint collider here on purpose — at this scale the
+      // building's footprint IS the arena, so a solid box over it would wall
+      // the player out of their own map. The existing arena-bounds clamp
+      // already keeps the player inside the (now building-sized) play area;
+      // individual columns/walls are visual only, same collision fidelity as
+      // every other real-mesh prop in this game (coarse AABB per object, not
+      // per-triangle), so this is a deliberate simplicity tradeoff, not an
+      // oversight.
     })
     .catch((err) => {
       console.error('Factory map: failed to load assets/old_factory.glb — the map will show without the building.', err);
