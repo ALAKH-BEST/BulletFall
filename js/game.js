@@ -1726,20 +1726,20 @@ function loadCityModel() {
       template.position.z -= center.z;
       template.position.y -= groundY;
 
-      // A landmark, not the whole map — this scan is a dense attached-building
-      // mass with no interior to walk through, so (unlike the old factory
-      // model) scaling it to cover the whole arena would just wall the player
-      // out of most of their own map. Instead it's sized as a big, prominent
-      // structure — its longer horizontal dimension spans a bit over half the
-      // arena width — positioned off-center so there's open street on every
-      // side to actually fight in, with the dressing above leading the player
-      // toward it from spawn.
-      const LANDMARK_FOOTPRINT = 42;
+      // A landmark, not a walkable interior — this scan is a dense
+      // attached-building mass with no interior to walk through, so (unlike
+      // the old factory model) scaling it to cover every inch of the arena
+      // would just wall the player out of their own map. It's still sized to
+      // dominate the arena though — its longer horizontal dimension spans
+      // most of the arena width, leaving only a flanking street on each side
+      // and a fight pocket near spawn — rather than reading as a small prop
+      // off to one side.
+      const LANDMARK_FOOTPRINT = 58;
       const scale = LANDMARK_FOOTPRINT / Math.max(rawSize.x, rawSize.z);
       const wrapper = new THREE.Group();
       wrapper.add(template);
       wrapper.scale.setScalar(scale);
-      wrapper.position.set(0, 0, -20);
+      wrapper.position.set(0, 0, -32);
       cityGroup.add(wrapper);
       wrapper.updateMatrixWorld(true);
 
