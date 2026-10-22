@@ -10,6 +10,11 @@ const CFG = {
   playerRadius: 0.4,
   eyeHeight: 1.65,
   arenaHalf: 36,
+  // The City Block map gets its own, much bigger play boundary — it's meant
+  // to read as a proper street canyon with big, close-up buildings, not a
+  // single landmark viewed from a small arena. See resolveCircleVsBoxes,
+  // which picks between this and arenaHalf based on the active map.
+  cityArenaHalf: 130,
   mouseSens: 0.0022,
   touchLookSens: 0.0045,
   bot: {
@@ -48,7 +53,7 @@ const THEMES = {
     name: 'City Block',
     swatch: ['#8a9bb0', '#4a5568', '#1c2230'],
     sky: { top: 0x1c2230, mid: 0x3d4a63, bottom: 0x7a8aa0 },
-    fog: { color: 0x2a3140, density: 0.016 },
+    fog: { color: 0x2a3140, density: 0.0085 },
     sun: { light: 0xcdd8e8, disc: 0xe8eef5 },
     hemi: { sky: 0x8a9bb0, ground: 0x1c2018 },
     fill: 0x5f7fa8,
@@ -780,8 +785,17 @@ scene.add(floor);
     ctx.fillRect(Math.random()*1024,Math.random()*1024,1+Math.random()*2,1+Math.random()*2);
   }
   const grimeTex=new THREE.CanvasTexture(c);
-  grimeTex.wrapS=grimeTex.wrapT=THREE.RepeatWrapping;grimeTex.repeat.set(2,2);
-  const grimeMesh=new THREE.Mesh(new THREE.PlaneGeometry(CFG.arenaHalf*2,CFG.arenaHalf*2),
+  grimeTex.wrapS=grimeTex.wrapT=THREE.RepeatWrapping;
+  // Sized to stay under the flanking buildings even where they run past the
+  // player's movement boundary (they're stretched 150 units deep, further
+  // than cityArenaHalf) — otherwise the ground would visibly run out under
+  // the far ends of the buildings while they're still on screen.
+  const CITY_GROUND_SPAN = 380;
+  // Keep the same texel density as the original 72-unit-wide plane instead of
+  // stretching one 2x2 tiling across the much bigger city ground.
+  const grimeRepeat = 2 * CITY_GROUND_SPAN / 72;
+  grimeTex.repeat.set(grimeRepeat, grimeRepeat);
+  const grimeMesh=new THREE.Mesh(new THREE.PlaneGeometry(CITY_GROUND_SPAN,CITY_GROUND_SPAN),
     new THREE.MeshStandardMaterial({map:grimeTex,color:0xffffff,roughness:.92,metalness:.04,envMapIntensity:.25,transparent:true,opacity:.82}));
   grimeMesh.rotation.x=-Math.PI/2;grimeMesh.position.y=.045;grimeMesh.receiveShadow=true;
   cityGroup.add(grimeMesh);
@@ -1014,8 +1028,8 @@ const cityHemi = new THREE.HemisphereLight(0x8a9bb0, 0x1c2018, 0.95);
 cityHemi.visible = false; cityGroup.add(cityHemi);
 const citySun = new THREE.DirectionalLight(0xcdd8e8, 1.6);
 citySun.position.set(-20, 38, -14); citySun.castShadow = true;
-citySun.shadow.mapSize.set(2048,2048); citySun.shadow.camera.left=-48; citySun.shadow.camera.right=48;
-citySun.shadow.camera.top=48; citySun.shadow.camera.bottom=-48; citySun.shadow.bias=-0.0015;
+citySun.shadow.mapSize.set(2048,2048); citySun.shadow.camera.left=-130; citySun.shadow.camera.right=130;
+citySun.shadow.camera.top=130; citySun.shadow.camera.bottom=-130; citySun.shadow.bias=-0.0015;
 citySun.visible = false; cityGroup.add(citySun);
 // Delivery/cargo crates scattered along the street.
 const cargoMat = [
@@ -1680,9 +1694,9 @@ function loadRealEnvProp(url, instances, opts) {
 //
 // Unlike the single hollow building this map used to use, this scan is a
 // dense, mostly-contiguous mass of attached buildings — there's no real
-// walkable interior to put the player inside. So this is treated as a solid
-// landmark structure the player fights around, in the street space
-// surrounding it, rather than something scaled to cover the whole arena.
+// walkable interior to put the player inside. So two big, stretched copies
+// of it are used as solid walls flanking a street (see the instancing logic
+// below), rather than one small landmark viewed from a distance.
 let cityModelPromise = null;
 function loadCityModel() {
   if (cityModelPromise) return cityModelPromise;
@@ -1725,24 +1739,7 @@ function loadCityModel() {
       template.position.x -= center.x;
       template.position.z -= center.z;
       template.position.y -= groundY;
-
-      // A landmark, not a walkable interior — this scan is a dense
-      // attached-building mass with no interior to walk through, so (unlike
-      // the old factory model) scaling it to cover every inch of the arena
-      // would just wall the player out of their own map. It's still sized to
-      // dominate the arena though — its longer horizontal dimension spans
-      // most of the arena width, leaving only a flanking street on each side
-      // and a fight pocket near spawn — rather than reading as a small prop
-      // off to one side.
-      const LANDMARK_FOOTPRINT = 58;
-      const scale = LANDMARK_FOOTPRINT / Math.max(rawSize.x, rawSize.z);
-      const wrapper = new THREE.Group();
-      wrapper.add(template);
-      wrapper.scale.setScalar(scale);
-      wrapper.position.set(0, 0, -32);
-      cityGroup.add(wrapper);
-      wrapper.updateMatrixWorld(true);
-
+      template.updateMatrixWorld(true);
       template.traverse((child) => {
         if (child.isMesh) {
           child.castShadow = true;
@@ -1751,20 +1748,49 @@ function loadCityModel() {
         }
       });
 
+      // Big street canyon, not one small landmark: two copies of the scan
+      // (mirrored on one side for a bit of variety) flank a street running
+      // north from spawn, each stretched non-uniformly — wide and tall
+      // rather than a uniform rescale — so buildings loom close on both
+      // sides the way a real downtown street does, instead of sitting as a
+      // single distant mass. This scan has no walkable interior (it's one
+      // dense, contiguous attached-building mass), so each copy is treated
+      // as a solid wall the player fights alongside, not inside.
+      const TARGET_WIDTH = 90;   // x extent of each flanking block
+      const TARGET_DEPTH = 150;  // z extent, running alongside the street
+      const HEIGHT_BOOST = 1.55; // extra vertical exaggeration for a towering feel
+      const STREET_HALF_WIDTH = 26; // clears the fixed bot spawn points (|x|<=24)
+      const NEAR_Z = -15; // closest building edge to spawn (spawn is at z=6)
+
+      const scaleX = TARGET_WIDTH / rawSize.x;
+      const scaleZ = TARGET_DEPTH / rawSize.z;
+      const scaleY = ((scaleX + scaleZ) / 2) * HEIGHT_BOOST;
+      const buildingHalfX = TARGET_WIDTH / 2;
+      const buildingHalfZ = TARGET_DEPTH / 2;
+      const posZ = NEAR_Z - buildingHalfZ;
+
+      const instanceDefs = [
+        { posX: -(STREET_HALF_WIDTH + buildingHalfX), mirror: false },
+        { posX: STREET_HALF_WIDTH + buildingHalfX, mirror: true },
+      ];
+
       // Real collision for the buildings, computed from the actual geometry
       // instead of guessed/hand-placed — this scan isn't a handful of
       // separate buildings with clean gaps between them, it's one dense,
       // irregularly-shaped mass, so a handful of hand-authored boxes
-      // wouldn't track its real footprint. Bin the sampled points (above —
-      // the same pass used for floor-grounding) into a 2D ground-plane grid,
-      // mark a cell solid when it has meaningfully-above-street geometry,
-      // then greedily merge adjacent solid cells into a small number of
+      // wouldn't track its real footprint. Bin the sampled points (collected
+      // above, in raw pre-transform space) into a 2D ground-plane grid, mark
+      // a cell solid when it has meaningfully-above-street geometry, then
+      // greedily merge adjacent solid cells into a small number of
       // rectangles (a run per row, extended downward while the row below
-      // matches) rather than one collider per cell. Coarse AABB collision
-      // only, same fidelity as every other real prop in this game — it
-      // traces the building mass's footprint, not each individual wall.
+      // matches) rather than one collider per cell. Run once per instance,
+      // reusing the same raw sample/grid (only the final world-space
+      // transform — scale + position + mirror — differs per instance).
+      // Coarse AABB collision only, same fidelity as every other real prop
+      // in this game — it traces the building mass's footprint, not each
+      // individual wall.
       const heightThreshold = groundY + rawSize.y * 0.03;
-      const GRID_NX = 26, GRID_NZ = 22;
+      const GRID_NX = 26, GRID_NZ = 34;
       const gxMin = box.min.x, gxMax = box.max.x, gzMin = box.min.z, gzMax = box.max.z;
       const cellW = (gxMax - gxMin) / GRID_NX, cellD = (gzMax - gzMin) / GRID_NZ;
       const counts = new Int32Array(GRID_NX * GRID_NZ);
@@ -1780,44 +1806,56 @@ function loadCityModel() {
       const MIN_POINTS = 3;
       const occupied = new Uint8Array(GRID_NX * GRID_NZ);
       for (let i = 0; i < occupied.length; i++) occupied[i] = counts[i] >= MIN_POINTS ? 1 : 0;
-      const consumed = new Uint8Array(GRID_NX * GRID_NZ);
       const pad = 0.15;
-      for (let cz = 0; cz < GRID_NZ; cz++) {
-        let cx = 0;
-        while (cx < GRID_NX) {
-          const idx = cz * GRID_NX + cx;
-          if (!occupied[idx] || consumed[idx]) { cx++; continue; }
-          // Extend this run rightward along the row.
-          let runEnd = cx;
-          while (runEnd + 1 < GRID_NX) {
-            const nIdx = cz * GRID_NX + (runEnd + 1);
-            if (!occupied[nIdx] || consumed[nIdx]) break;
-            runEnd++;
-          }
-          // Extend the run downward as long as every cell in the same
-          // [cx, runEnd] column range is also solid and unconsumed.
-          let rowEnd = cz;
-          outer:
-          while (rowEnd + 1 < GRID_NZ) {
-            for (let x = cx; x <= runEnd; x++) {
-              const nIdx = (rowEnd + 1) * GRID_NX + x;
-              if (!occupied[nIdx] || consumed[nIdx]) break outer;
+
+      instanceDefs.forEach((def) => {
+        const inst = template.clone(true);
+        const wrapper = new THREE.Group();
+        wrapper.add(inst);
+        wrapper.scale.set(def.mirror ? -scaleX : scaleX, scaleY, scaleZ);
+        wrapper.position.set(def.posX, 0, posZ);
+        cityGroup.add(wrapper);
+        wrapper.updateMatrixWorld(true);
+
+        const consumed = new Uint8Array(GRID_NX * GRID_NZ);
+        for (let cz = 0; cz < GRID_NZ; cz++) {
+          let cx = 0;
+          while (cx < GRID_NX) {
+            const idx = cz * GRID_NX + cx;
+            if (!occupied[idx] || consumed[idx]) { cx++; continue; }
+            // Extend this run rightward along the row.
+            let runEnd = cx;
+            while (runEnd + 1 < GRID_NX) {
+              const nIdx = cz * GRID_NX + (runEnd + 1);
+              if (!occupied[nIdx] || consumed[nIdx]) break;
+              runEnd++;
             }
-            rowEnd++;
+            // Extend the run downward as long as every cell in the same
+            // [cx, runEnd] column range is also solid and unconsumed.
+            let rowEnd = cz;
+            outer:
+            while (rowEnd + 1 < GRID_NZ) {
+              for (let x = cx; x <= runEnd; x++) {
+                const nIdx = (rowEnd + 1) * GRID_NX + x;
+                if (!occupied[nIdx] || consumed[nIdx]) break outer;
+              }
+              rowEnd++;
+            }
+            for (let z = cz; z <= rowEnd; z++) {
+              for (let x = cx; x <= runEnd; x++) consumed[z * GRID_NX + x] = 1;
+            }
+            const rawX0 = gxMin + cx * cellW, rawX1 = gxMin + (runEnd + 1) * cellW;
+            const rawZ0 = gzMin + cz * cellD, rawZ1 = gzMin + (rowEnd + 1) * cellD;
+            let wx0 = (rawX0 - center.x) * wrapper.scale.x + wrapper.position.x;
+            let wx1 = (rawX1 - center.x) * wrapper.scale.x + wrapper.position.x;
+            if (wx0 > wx1) { const t = wx0; wx0 = wx1; wx1 = t; }
+            const wz0 = (rawZ0 - center.z) * wrapper.scale.z + wrapper.position.z - pad;
+            const wz1 = (rawZ1 - center.z) * wrapper.scale.z + wrapper.position.z + pad;
+            addCollider(wx0 - pad, wz0, wx1 + pad, wz1, 'city');
+            cx = runEnd + 1;
           }
-          for (let z = cz; z <= rowEnd; z++) {
-            for (let x = cx; x <= runEnd; x++) consumed[z * GRID_NX + x] = 1;
-          }
-          const rawX0 = gxMin + cx * cellW, rawX1 = gxMin + (runEnd + 1) * cellW;
-          const rawZ0 = gzMin + cz * cellD, rawZ1 = gzMin + (rowEnd + 1) * cellD;
-          const wx0 = (rawX0 - center.x) * scale + wrapper.position.x - pad;
-          const wx1 = (rawX1 - center.x) * scale + wrapper.position.x + pad;
-          const wz0 = (rawZ0 - center.z) * scale + wrapper.position.z - pad;
-          const wz1 = (rawZ1 - center.z) * scale + wrapper.position.z + pad;
-          addCollider(wx0, wz0, wx1, wz1, 'city');
-          cx = runEnd + 1;
         }
-      }
+      });
     })
     .catch((err) => {
       console.error('City map: failed to load assets/city_pack_3.glb — the map will show without the city block.', err);
@@ -1986,7 +2024,7 @@ const mountainMesh = new THREE.InstancedMesh(new THREE.ConeGeometry(1, 1, 6), mo
 mountainMesh.castShadow = false; mountainMesh.receiveShadow = false;
 {
   const dummy = new THREE.Object3D();
-  const ringRadius = CFG.arenaHalf + 45;
+  const ringRadius = Math.max(CFG.arenaHalf, CFG.cityArenaHalf) + 45;
   for (let i = 0; i < MOUNTAIN_COUNT; i++) {
     const angle = (i / MOUNTAIN_COUNT) * Math.PI * 2 + Math.random() * 0.15;
     // depth 0..1: closer instances read as midground foothills, farther ones as
@@ -2267,7 +2305,7 @@ function resolveCircleVsBoxes(pos, radius, ignoreList) {
       pos.z += (dz / dist) * push;
     }
   }
-  const limit = CFG.arenaHalf - 0.6;
+  const limit = (activeMapKey === 'city' ? CFG.cityArenaHalf : CFG.arenaHalf) - 0.6;
   pos.x = Math.max(-limit, Math.min(limit, pos.x));
   pos.z = Math.max(-limit, Math.min(limit, pos.z));
 }
