@@ -44,21 +44,21 @@ const THEMES = {
     grass: 0x8a7a3f,
     exposure: 1.12, hemiIntensity: 0.65, sunIntensity: 1.15,
   },
-  factory: {
-    name: 'Derelict Factory',
-    swatch: ['#c98a4a', '#6b5a4a', '#2a2420'],
-    sky: { top: 0x2a2420, mid: 0x5c4a3a, bottom: 0x8a7458 },
-    fog: { color: 0x3a3028, density: 0.017 },
-    sun: { light: 0xd9a86a, disc: 0xe8c296 },
-    hemi: { sky: 0xb09070, ground: 0x2a2018 },
-    fill: 0x8a7050,
-    wall: 0x4a4038,
-    floor: { base: '#71675c', patchA: '#5a5248', patchB: '#8a7e6e', speckleDark: 'rgba(30,26,20,', speckleLight: 'rgba(170,158,140,', seam: 'rgba(20,16,12,0.22)', crack: 'rgba(15,12,8,0.4)' },
-    crate1: { base: '#8a5a2f', band: '#3a2614' },
-    crate2: { base: '#5c6b4a', band: '#2a3320' },
-    rockTint: 0x9a8a74,
-    grass: 0x6a5c3f,
-    exposure: 1.05, hemiIntensity: 0.55, sunIntensity: 0.95,
+  city: {
+    name: 'City Block',
+    swatch: ['#8a9bb0', '#4a5568', '#1c2230'],
+    sky: { top: 0x1c2230, mid: 0x3d4a63, bottom: 0x7a8aa0 },
+    fog: { color: 0x2a3140, density: 0.016 },
+    sun: { light: 0xcdd8e8, disc: 0xe8eef5 },
+    hemi: { sky: 0x8a9bb0, ground: 0x1c2018 },
+    fill: 0x5f7fa8,
+    wall: 0x3a4250,
+    floor: { base: '#5a6270', patchA: '#454c58', patchB: '#6e7684', speckleDark: 'rgba(20,22,28,', speckleLight: 'rgba(160,168,180,', seam: 'rgba(15,17,22,0.25)', crack: 'rgba(10,12,16,0.4)' },
+    crate1: { base: '#5a4a3a', band: '#2a2018' },
+    crate2: { base: '#3f5560', band: '#1a2a30' },
+    rockTint: 0x8a92a0,
+    grass: 0x4a5240,
+    exposure: 1.0, hemiIntensity: 0.6, sunIntensity: 1.0,
   },
   nightshade: {
     name: 'Nightshade',
@@ -650,10 +650,10 @@ function addCollider(minX, minZ, maxX, maxZ, map = 'classic') {
 // the noise amplitude is kept small and is explicitly flattened over the PERCH ramp/
 // platform, the central road, and the spawn point to avoid any visible mismatch with
 // the collision the game actually simulates. One mesh, one draw call, same as before.
-// Map selection state and Factory-only scene group must exist before terrain textures are built.
-const factoryGroup = new THREE.Group();
-scene.add(factoryGroup);
-factoryGroup.visible = false;
+// Map selection state and City-only scene group must exist before terrain textures are built.
+const cityGroup = new THREE.Group();
+scene.add(cityGroup);
+cityGroup.visible = false;
 let activeMapKey = 'classic';
 const classicEnvironmentObjects = [];
 
@@ -757,20 +757,20 @@ floor.rotation.x = -Math.PI / 2;
 floor.receiveShadow = true;
 
 scene.add(floor);
-// Continuous grime overlay for the factory floor: dark weathered concrete with
-// scattered oil stains and rust streaks (the Factory map's equivalent of the
+// Continuous grime overlay for the city map's streets: dark weathered asphalt
+// with scattered oil stains and grime streaks (the City map's equivalent of the
 // classic map's bare sand — a distinct ground read, not just a palette swap).
 {
   const c=document.createElement('canvas'); c.width=1024; c.height=1024;
   const ctx=c.getContext('2d');
   const grad=ctx.createLinearGradient(0,0,1024,1024);
-  grad.addColorStop(0,'#3c3630'); grad.addColorStop(.48,'#2e2a24'); grad.addColorStop(1,'#242019');
+  grad.addColorStop(0,'#363a40'); grad.addColorStop(.48,'#2a2d32'); grad.addColorStop(1,'#201f24');
   ctx.fillStyle=grad; ctx.fillRect(0,0,1024,1024);
   for(let i=0;i<70;i++){
     const x=Math.random()*1024,y=Math.random()*1024,r=14+Math.random()*60;
-    const rust=Math.random()>.55;
+    const oil=Math.random()>.55;
     const g=ctx.createRadialGradient(x,y,0,x,y,r);
-    g.addColorStop(0,rust?'rgba(138,74,36,.22)':'rgba(10,8,6,.3)');
+    g.addColorStop(0,oil?'rgba(10,12,16,.3)':'rgba(40,46,56,.22)');
     g.addColorStop(1,'rgba(0,0,0,0)');
     ctx.fillStyle=g;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();
   }
@@ -784,7 +784,7 @@ scene.add(floor);
   const grimeMesh=new THREE.Mesh(new THREE.PlaneGeometry(CFG.arenaHalf*2,CFG.arenaHalf*2),
     new THREE.MeshStandardMaterial({map:grimeTex,color:0xffffff,roughness:.92,metalness:.04,envMapIntensity:.25,transparent:true,opacity:.82}));
   grimeMesh.rotation.x=-Math.PI/2;grimeMesh.position.y=.045;grimeMesh.receiveShadow=true;
-  factoryGroup.add(grimeMesh);
+  cityGroup.add(grimeMesh);
 }
 
 
@@ -1000,23 +1000,24 @@ haze.position.y = 1.4;
 scene.add(haze);
 
 
-// FACTORY MAP LAYER — a real scanned factory building scaled to BE the map
-// itself (the whole arena plays out inside/around it, not next to it),
-// dressed with the same cargo-container/concrete-barrier cover used by
-// every other map. The building itself is loaded on demand by loadFactoryModel()
-// (see below) the first time a player picks this map in the battlefield picker,
-// not fetched eagerly at startup — it's by far the heaviest real asset in this
-// project (~11MB, ~114k triangles), and this project has hit real-hardware
-// GPU/texture-memory regressions from stacking real assets more than once, so it
-// stays opt-in rather than adding load to every page visit.
-const factoryHemi = new THREE.HemisphereLight(0xb09070, 0x2a2018, 0.95);
-factoryHemi.visible = false; factoryGroup.add(factoryHemi);
-const factorySun = new THREE.DirectionalLight(0xd9a86a, 1.75);
-factorySun.position.set(-20, 38, -14); factorySun.castShadow = true;
-factorySun.shadow.mapSize.set(2048,2048); factorySun.shadow.camera.left=-48; factorySun.shadow.camera.right=48;
-factorySun.shadow.camera.top=48; factorySun.shadow.camera.bottom=-48; factorySun.shadow.bias=-0.0015;
-factorySun.visible = false; factoryGroup.add(factorySun);
-// Weathered modular cargo containers scattered around the factory yard.
+// CITY MAP LAYER — a real scanned city block as a landmark structure the
+// player fights around (not inside — it's a dense, mostly-solid mass of
+// attached buildings, not a hollow interior), dressed with the same
+// cargo-container/concrete-barrier street cover used by every other map.
+// The block itself is loaded on demand by loadCityModel() (see below) the
+// first time a player picks this map in the battlefield picker, not
+// fetched eagerly at startup — it's by far the heaviest real asset in this
+// project (~13MB), and this project has hit real-hardware GPU/texture-memory
+// regressions from stacking real assets more than once, so it stays opt-in
+// rather than adding load to every page visit.
+const cityHemi = new THREE.HemisphereLight(0x8a9bb0, 0x1c2018, 0.95);
+cityHemi.visible = false; cityGroup.add(cityHemi);
+const citySun = new THREE.DirectionalLight(0xcdd8e8, 1.6);
+citySun.position.set(-20, 38, -14); citySun.castShadow = true;
+citySun.shadow.mapSize.set(2048,2048); citySun.shadow.camera.left=-48; citySun.shadow.camera.right=48;
+citySun.shadow.camera.top=48; citySun.shadow.camera.bottom=-48; citySun.shadow.bias=-0.0015;
+citySun.visible = false; cityGroup.add(citySun);
+// Delivery/cargo crates scattered along the street.
 const cargoMat = [
  new THREE.MeshStandardMaterial({color:0x343d45,roughness:.86,metalness:.35}),
  new THREE.MeshStandardMaterial({color:0x4b555d,roughness:.88,metalness:.25}),
@@ -1027,33 +1028,33 @@ for(let i=0;i<14;i++){
  const side=i%2===0?-1:1, row=Math.floor(i/2);
  const mesh=new THREE.Mesh(cargoGeo,cargoMat[i%cargoMat.length]);
  mesh.position.set(side*(8.5+(row%3)*2.2),1.15,-8-row*3.2);
- addCollider(mesh.position.x-2.55, mesh.position.z-1.25, mesh.position.x+2.55, mesh.position.z+1.25, 'factory');
+ addCollider(mesh.position.x-2.55, mesh.position.z-1.25, mesh.position.x+2.55, mesh.position.z+1.25, 'city');
  mesh.rotation.y=side*.05+(i%3)*.035; mesh.castShadow=true;mesh.receiveShadow=true;
- factoryGroup.add(mesh);
+ cityGroup.add(mesh);
  const ribGeo=new THREE.BoxGeometry(.08,2.18,2.2);
  for(let r=0;r<9;r++){
    const rib=new THREE.Mesh(ribGeo,cargoMat[0]);
    rib.position.set(mesh.position.x-2.1+r*.52,1.15,mesh.position.z);
-   rib.castShadow=true; factoryGroup.add(rib);
+   rib.castShadow=true; cityGroup.add(rib);
  }
 }
-// Defensive concrete blast barriers lining the approach to the factory building.
+// Concrete road barriers lining the approach toward the city block.
 const concreteMat=new THREE.MeshStandardMaterial({color:0x59636a,roughness:.95});
 for(let i=0;i<8;i++){
  const b=new THREE.Mesh(new THREE.BoxGeometry(2.6,1.05,.75),concreteMat);
  b.position.set(-6.8+i*1.95,.52,-4.2); b.rotation.y=(i%2?-.04:.04);
- b.castShadow=true;b.receiveShadow=true;factoryGroup.add(b);
- addCollider(b.position.x-1.35, b.position.z-.55, b.position.x+1.35, b.position.z+.55, 'factory');
+ b.castShadow=true;b.receiveShadow=true;cityGroup.add(b);
+ addCollider(b.position.x-1.35, b.position.z-.55, b.position.x+1.35, b.position.z+.55, 'city');
 }
-// Rubble piles around the approach — this map's equivalent of the old snow berms,
-// marking a visible transition from the spawn toward the factory building.
+// Street debris piles — this map's equivalent of the old snow berms,
+// marking a visible transition from the spawn toward the city block.
 const rubbleMat=new THREE.MeshStandardMaterial({color:0x4a4238,roughness:1});
 for(let i=0;i<10;i++){
   const side=i%2===0?-1:1, z=-3-Math.floor(i/2)*3.6;
   const rubble=new THREE.Mesh(new THREE.IcosahedronGeometry(1,2),rubbleMat);
   rubble.position.set(side*(10.5+(i%3)*1.3),.6,z);
-  rubble.scale.set(2.2,1.05,1.65);rubble.castShadow=true;rubble.receiveShadow=true;factoryGroup.add(rubble);
- addCollider(rubble.position.x-1.8, rubble.position.z-1.35, rubble.position.x+1.8, rubble.position.z+1.35, 'factory');
+  rubble.scale.set(2.2,1.05,1.65);rubble.castShadow=true;rubble.receiveShadow=true;cityGroup.add(rubble);
+ addCollider(rubble.position.x-1.8, rubble.position.z-1.35, rubble.position.x+1.8, rubble.position.z+1.35, 'city');
 }
 
 // Boundary walls
@@ -1530,7 +1531,7 @@ const ASSET_SIZES = {
   'assets/boulder_real.glb': 2609956,
   'assets/boulder_real2.glb': 2384680,
   'assets/shipping_container.glb': 5627592,
-  'assets/old_factory.glb': 11398692,
+  'assets/city_pack_3.glb': 13343248,
 };
 
 // Tracks download progress (0..1 per URL) across every real asset fetched
@@ -1561,7 +1562,7 @@ const AssetLoadTracker = {
 // directly, purely so AssetLoadTracker can report real incremental progress
 // as bytes arrive — the resolved value is the same ArrayBuffer either way,
 // so every existing caller (loadRealEnvProp, loadBoulderTemplate,
-// loadRealAssaultModel, loadFactoryModel) is a drop-in swap with no other
+// loadRealAssaultModel, loadCityModel) is a drop-in swap with no other
 // change in behavior. Falls back to a plain arrayBuffer() read (progress
 // just jumps straight to 100% for that file) if the body can't be streamed
 // or no length is known at all.
@@ -1668,19 +1669,25 @@ function loadRealEnvProp(url, instances, opts) {
     });
 }
 
-// Factory map centerpiece — a real scanned factory building, loaded on demand (not
-// at startup) the first time the player picks the Factory map in the battlefield
-// picker, and cached so picking it again doesn't re-fetch. Deliberately opt-in: at
-// ~11MB/~114k triangles it's the heaviest real asset in this project, and loading
-// it only for players who actually choose this map avoids adding that cost to
-// every page visit the way the always-on classic-map assets do.
-// Credit: "old factory FREE" by dasy444 (https://sketchfab.com/dasy444), Sketchfab
+// City map centerpiece — a real scanned city block, loaded on demand (not at
+// startup) the first time the player picks the City map in the battlefield
+// picker, and cached so picking it again doesn't re-fetch. Deliberately
+// opt-in: at ~13MB it's the heaviest real asset in this project, and loading
+// it only for players who actually choose this map avoids adding that cost
+// to every page visit the way the always-on classic-map assets do.
+// Credit: "City pack 3" by Pasha (https://sketchfab.com/Pasha.), Sketchfab
 // Standard license — see README for details.
-let factoryModelPromise = null;
-function loadFactoryModel() {
-  if (factoryModelPromise) return factoryModelPromise;
+//
+// Unlike the single hollow building this map used to use, this scan is a
+// dense, mostly-contiguous mass of attached buildings — there's no real
+// walkable interior to put the player inside. So this is treated as a solid
+// landmark structure the player fights around, in the street space
+// surrounding it, rather than something scaled to cover the whole arena.
+let cityModelPromise = null;
+function loadCityModel() {
+  if (cityModelPromise) return cityModelPromise;
   if (typeof THREE.GLTFLoader !== 'function') return Promise.resolve();
-  factoryModelPromise = fetchArrayBufferWithProgress('assets/old_factory.glb')
+  cityModelPromise = fetchArrayBufferWithProgress('assets/city_pack_3.glb')
     .then((buffer) => new Promise((resolve, reject) => {
       new THREE.GLTFLoader().parse(buffer, '', resolve, reject);
     }))
@@ -1690,48 +1697,50 @@ function loadFactoryModel() {
       const center = box.getCenter(new THREE.Vector3());
       const rawSize = box.getSize(new THREE.Vector3());
 
-      // Ground on the real walkable floor, not the raw bounding-box minimum.
-      // This scan has a sliver of below-floor noise (loose scan debris/
-      // foundation scrap — under 1% of all vertices) sitting well below the
-      // actual floor, which drags box.min.y far lower than where the floor
-      // really is. Using that minimum put the floor ~2.2 units (so, scaled,
-      // several units once this model is stretched to arena size) below the
-      // player's feet, so walking "into" the building actually meant walking
-      // into its sub-floor/foundation, nose-first into the underside of the
-      // structure above — exactly the broken clipped-into-a-beam look this
-      // was producing. Sampling vertex heights and taking a low percentile
-      // finds the real floor instead; the sparse noise can't skew it.
+      // Ground on the real street level, not the raw bounding-box minimum —
+      // same lesson as the old factory model: a sliver of below-ground scan
+      // noise can sit well under the actual floor and drag box.min.y down
+      // with it. Sample vertex heights and use a low percentile instead;
+      // also collect X/Z alongside Y in the same pass so the same sample set
+      // can build the collision footprint below without walking the mesh
+      // twice.
       template.updateMatrixWorld(true);
-      const sampledY = [];
+      const sampled = [];
       const vTemp = new THREE.Vector3();
       template.traverse((child) => {
         if (child.isMesh && child.geometry && child.geometry.attributes.position) {
           const posAttr = child.geometry.attributes.position;
-          const step = Math.max(1, Math.floor(posAttr.count / 3000));
+          const step = Math.max(1, Math.floor(posAttr.count / 4000));
           for (let i = 0; i < posAttr.count; i += step) {
             vTemp.fromBufferAttribute(posAttr, i).applyMatrix4(child.matrixWorld);
-            sampledY.push(vTemp.y);
+            sampled.push(vTemp.x, vTemp.y, vTemp.z);
           }
         }
       });
+      const sampledY = [];
+      for (let i = 1; i < sampled.length; i += 3) sampledY.push(sampled[i]);
       sampledY.sort((a, b) => a - b);
-      const floorY = sampledY.length ? sampledY[Math.floor(sampledY.length * 0.02)] : box.min.y;
+      const groundY = sampledY.length ? sampledY[Math.floor(sampledY.length * 0.02)] : box.min.y;
 
       template.position.x -= center.x;
       template.position.z -= center.z;
-      template.position.y -= floorY;
+      template.position.y -= groundY;
 
-      // This model IS the map, not a landmark dropped into one — scale its
-      // longer horizontal dimension to span the full arena (CFG.arenaHalf*2)
-      // and center it on the arena origin, same as the floor/sky/fog rig
-      // every other map builds around.
-      const ARENA_SPAN = CFG.arenaHalf * 2;
-      const scale = ARENA_SPAN / Math.max(rawSize.x, rawSize.z);
+      // A landmark, not the whole map — this scan is a dense attached-building
+      // mass with no interior to walk through, so (unlike the old factory
+      // model) scaling it to cover the whole arena would just wall the player
+      // out of most of their own map. Instead it's sized as a big, prominent
+      // structure — its longer horizontal dimension spans a bit over half the
+      // arena width — positioned off-center so there's open street on every
+      // side to actually fight in, with the dressing above leading the player
+      // toward it from spawn.
+      const LANDMARK_FOOTPRINT = 42;
+      const scale = LANDMARK_FOOTPRINT / Math.max(rawSize.x, rawSize.z);
       const wrapper = new THREE.Group();
       wrapper.add(template);
       wrapper.scale.setScalar(scale);
-      wrapper.position.set(0, 0, 0);
-      factoryGroup.add(wrapper);
+      wrapper.position.set(0, 0, -20);
+      cityGroup.add(wrapper);
       wrapper.updateMatrixWorld(true);
 
       template.traverse((child) => {
@@ -1742,33 +1751,78 @@ function loadFactoryModel() {
         }
       });
 
-      // No single footprint collider over the whole building — at this scale
-      // that would wall the player out of their own map, and the existing
-      // arena-bounds clamp already keeps them inside the (now
-      // building-sized) play area. But fully walk-through walls read as
-      // broken right where it's most obvious: the two long interior walls
-      // flanking the entrance hall the player spawns into. Their positions
-      // were located by sampling this scan's wall-facing geometry offline
-      // (density of near-vertical-normal triangles across the floor-height
-      // band), so these two coarse colliders line up with what's actually
-      // drawn there. A gap is left at the middle of each on purpose — a
-      // real doorway through to the rest of the building, not a dead end.
-      // Coarse AABB only, same fidelity as every other real prop here, not
-      // a full per-wall reconstruction of the whole scan.
-      const innerWallRawX = [-3.70, 3.67];
-      const wallHalfThickness = 0.9;
-      const gapHalfWidth = 5;
-      const H = CFG.arenaHalf;
-      innerWallRawX.forEach((rawX) => {
-        const wx = (rawX - center.x) * scale;
-        addCollider(wx - wallHalfThickness, -H, wx + wallHalfThickness, -gapHalfWidth, 'factory');
-        addCollider(wx - wallHalfThickness, gapHalfWidth, wx + wallHalfThickness, H, 'factory');
-      });
+      // Real collision for the buildings, computed from the actual geometry
+      // instead of guessed/hand-placed — this scan isn't a handful of
+      // separate buildings with clean gaps between them, it's one dense,
+      // irregularly-shaped mass, so a handful of hand-authored boxes
+      // wouldn't track its real footprint. Bin the sampled points (above —
+      // the same pass used for floor-grounding) into a 2D ground-plane grid,
+      // mark a cell solid when it has meaningfully-above-street geometry,
+      // then greedily merge adjacent solid cells into a small number of
+      // rectangles (a run per row, extended downward while the row below
+      // matches) rather than one collider per cell. Coarse AABB collision
+      // only, same fidelity as every other real prop in this game — it
+      // traces the building mass's footprint, not each individual wall.
+      const heightThreshold = groundY + rawSize.y * 0.03;
+      const GRID_NX = 26, GRID_NZ = 22;
+      const gxMin = box.min.x, gxMax = box.max.x, gzMin = box.min.z, gzMax = box.max.z;
+      const cellW = (gxMax - gxMin) / GRID_NX, cellD = (gzMax - gzMin) / GRID_NZ;
+      const counts = new Int32Array(GRID_NX * GRID_NZ);
+      for (let i = 0; i < sampled.length; i += 3) {
+        const px = sampled[i], py = sampled[i + 1], pz = sampled[i + 2];
+        if (py < heightThreshold) continue;
+        let cx = Math.floor((px - gxMin) / cellW);
+        let cz = Math.floor((pz - gzMin) / cellD);
+        if (cx < 0) cx = 0; else if (cx >= GRID_NX) cx = GRID_NX - 1;
+        if (cz < 0) cz = 0; else if (cz >= GRID_NZ) cz = GRID_NZ - 1;
+        counts[cz * GRID_NX + cx]++;
+      }
+      const MIN_POINTS = 3;
+      const occupied = new Uint8Array(GRID_NX * GRID_NZ);
+      for (let i = 0; i < occupied.length; i++) occupied[i] = counts[i] >= MIN_POINTS ? 1 : 0;
+      const consumed = new Uint8Array(GRID_NX * GRID_NZ);
+      const pad = 0.15;
+      for (let cz = 0; cz < GRID_NZ; cz++) {
+        let cx = 0;
+        while (cx < GRID_NX) {
+          const idx = cz * GRID_NX + cx;
+          if (!occupied[idx] || consumed[idx]) { cx++; continue; }
+          // Extend this run rightward along the row.
+          let runEnd = cx;
+          while (runEnd + 1 < GRID_NX) {
+            const nIdx = cz * GRID_NX + (runEnd + 1);
+            if (!occupied[nIdx] || consumed[nIdx]) break;
+            runEnd++;
+          }
+          // Extend the run downward as long as every cell in the same
+          // [cx, runEnd] column range is also solid and unconsumed.
+          let rowEnd = cz;
+          outer:
+          while (rowEnd + 1 < GRID_NZ) {
+            for (let x = cx; x <= runEnd; x++) {
+              const nIdx = (rowEnd + 1) * GRID_NX + x;
+              if (!occupied[nIdx] || consumed[nIdx]) break outer;
+            }
+            rowEnd++;
+          }
+          for (let z = cz; z <= rowEnd; z++) {
+            for (let x = cx; x <= runEnd; x++) consumed[z * GRID_NX + x] = 1;
+          }
+          const rawX0 = gxMin + cx * cellW, rawX1 = gxMin + (runEnd + 1) * cellW;
+          const rawZ0 = gzMin + cz * cellD, rawZ1 = gzMin + (rowEnd + 1) * cellD;
+          const wx0 = (rawX0 - center.x) * scale + wrapper.position.x - pad;
+          const wx1 = (rawX1 - center.x) * scale + wrapper.position.x + pad;
+          const wz0 = (rawZ0 - center.z) * scale + wrapper.position.z - pad;
+          const wz1 = (rawZ1 - center.z) * scale + wrapper.position.z + pad;
+          addCollider(wx0, wz0, wx1, wz1, 'city');
+          cx = runEnd + 1;
+        }
+      }
     })
     .catch((err) => {
-      console.error('Factory map: failed to load assets/old_factory.glb — the map will show without the building.', err);
+      console.error('City map: failed to load assets/city_pack_3.glb — the map will show without the city block.', err);
     });
-  return factoryModelPromise;
+  return cityModelPromise;
 }
 
 // Fetches+parses one boulder model and returns a ready-to-clone template
@@ -2167,7 +2221,7 @@ applyTheme(currentThemeKey);
 /* Map select UI (mission briefing screen) */
 const THEME_BLURBS = {
   dustline: 'Sun-scorched canyon ridgelines and crumbling supply outposts.',
-  factory: 'A collapsing industrial complex, rusted machinery and dust-choked light.',
+  city: 'A dense, half-abandoned city block looming over cracked streets.',
   nightshade: 'Neon-lit ruins under a bleeding violet sky.',
 };
 const themeSwatchesEl = document.getElementById('theme-swatches');
@@ -5129,9 +5183,9 @@ const DEPLOY_STATUS_LINES_CORE = [
   'Raising cargo containers...',
   'Calibrating optics...',
 ];
-const DEPLOY_STATUS_LINES_FACTORY = [
+const DEPLOY_STATUS_LINES_CITY = [
   'Streaming rifle rig...',
-  'Constructing factory shell...',
+  'Raising the city block...',
   'Raising cargo containers...',
   'Scattering debris...',
 ];
@@ -5152,10 +5206,10 @@ function beginDeployment() {
   const tipEl = document.getElementById('loading-screen-tip');
   loadingEl.classList.remove('hidden');
 
-  const useFactory = activeMapKey === 'factory';
+  const useCity = activeMapKey === 'city';
   const relevantUrls = ['assets/ak47.glb', 'assets/boulder_real.glb', 'assets/boulder_real2.glb', 'assets/shipping_container.glb']
-    .concat(useFactory ? ['assets/old_factory.glb'] : []);
-  const statusLines = useFactory ? DEPLOY_STATUS_LINES_FACTORY : DEPLOY_STATUS_LINES_CORE;
+    .concat(useCity ? ['assets/city_pack_3.glb'] : []);
+  const statusLines = useCity ? DEPLOY_STATUS_LINES_CITY : DEPLOY_STATUS_LINES_CORE;
 
   tipEl.textContent = DEPLOY_TIPS[Math.floor(Math.random() * DEPLOY_TIPS.length)];
   statusEl.textContent = statusLines[0];
@@ -5199,7 +5253,7 @@ function beginDeployment() {
     startGame();
   }
 
-  const assetsReady = Promise.all([mainAssetsPromise, useFactory ? loadFactoryModel() : Promise.resolve()]);
+  const assetsReady = Promise.all([mainAssetsPromise, useCity ? loadCityModel() : Promise.resolve()]);
   // A short minimum display time so the screen always reads as an
   // intentional beat rather than a flash, even when everything was already
   // cached/loaded by the time the player reaches it.
@@ -5219,36 +5273,36 @@ document.getElementById('start-btn').addEventListener('click', () => {
 function selectMapChoice(key) {
   pendingMapChoice = key;
   document.getElementById('map-choice-classic').classList.toggle('selected', key === 'classic');
-  document.getElementById('map-choice-factory').classList.toggle('selected', key === 'factory');
-  // Kick off the factory building's (large, ~11MB) fetch as soon as it's picked in
+  document.getElementById('map-choice-city').classList.toggle('selected', key === 'city');
+  // Kick off the city block's (large, ~13MB) fetch as soon as it's picked in
   // the list, giving it a head start while the player is still on the picker/
-  // warning dialog. loadFactoryModel() is cached, so this never double-fetches.
-  if (key === 'factory') loadFactoryModel();
+  // warning dialog. loadCityModel() is cached, so this never double-fetches.
+  if (key === 'city') loadCityModel();
 }
 document.getElementById('map-choice-classic').addEventListener('click', () => selectMapChoice('classic'));
-document.getElementById('map-choice-factory').addEventListener('click', () => selectMapChoice('factory'));
+document.getElementById('map-choice-city').addEventListener('click', () => selectMapChoice('city'));
 document.getElementById('map-choice-cancel').addEventListener('click', () => {
   document.getElementById('map-picker').classList.add('hidden');
 });
 document.getElementById('map-choice-confirm').addEventListener('click', () => {
   document.getElementById('map-picker').classList.add('hidden');
   activeMapKey = pendingMapChoice;
-  const useFactory = activeMapKey === 'factory';
+  const useCity = activeMapKey === 'city';
   // Switch the sky, fog, ambient/direct lighting and palette with the selected theatre.
-  if (typeof applyTheme === 'function') applyTheme(useFactory ? 'factory' : 'dustline');
-  factoryGroup.visible = useFactory;
-  // Keep Dustline Canyon intact, but hide its arena dressing when Factory is selected.
-  if (typeof floor !== 'undefined') floor.visible = !useFactory;
-  if (typeof haze !== 'undefined') haze.visible = !useFactory;
-  if (typeof envMeshes !== 'undefined') envMeshes.forEach(m => { m.visible = !useFactory; });
-  if (typeof grassInst !== 'undefined') grassInst.visible = !useFactory;
-  if (typeof pebbleInst !== 'undefined') pebbleInst.visible = !useFactory;
-  if (typeof shaleInst !== 'undefined') shaleInst.visible = !useFactory;
+  if (typeof applyTheme === 'function') applyTheme(useCity ? 'city' : 'dustline');
+  cityGroup.visible = useCity;
+  // Keep Dustline Canyon intact, but hide its arena dressing when City is selected.
+  if (typeof floor !== 'undefined') floor.visible = !useCity;
+  if (typeof haze !== 'undefined') haze.visible = !useCity;
+  if (typeof envMeshes !== 'undefined') envMeshes.forEach(m => { m.visible = !useCity; });
+  if (typeof grassInst !== 'undefined') grassInst.visible = !useCity;
+  if (typeof pebbleInst !== 'undefined') pebbleInst.visible = !useCity;
+  if (typeof shaleInst !== 'undefined') shaleInst.visible = !useCity;
   // Keep the classic map's atmospheric road/decals out of the other map.
   scene.traverse(o => {
-    if (o.userData && o.userData.classicOnly) o.visible = !useFactory;
+    if (o.userData && o.userData.classicOnly) o.visible = !useCity;
   });
-  if (useFactory) {
+  if (useCity) {
     document.getElementById('graphics-warning').classList.remove('hidden');
   } else {
     beginDeployment();
