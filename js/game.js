@@ -10,11 +10,11 @@ const CFG = {
   playerRadius: 0.4,
   eyeHeight: 1.65,
   arenaHalf: 36,
-  // The City Block map gets its own, much bigger play boundary — it's meant
-  // to read as a proper street canyon with big, close-up buildings, not a
-  // single landmark viewed from a small arena. See resolveCircleVsBoxes,
+  // The Abandoned Street map gets its own play boundary, sized to actually
+  // match its model's real footprint (see loadStreetModel) plus a small
+  // margin — not an arbitrary blown-up arena. See resolveCircleVsBoxes,
   // which picks between this and arenaHalf based on the active map.
-  cityArenaHalf: 130,
+  streetArenaHalf: 62,
   mouseSens: 0.0022,
   touchLookSens: 0.0045,
   bot: {
@@ -49,11 +49,11 @@ const THEMES = {
     grass: 0x8a7a3f,
     exposure: 1.12, hemiIntensity: 0.65, sunIntensity: 1.15,
   },
-  city: {
-    name: 'City Block',
+  street: {
+    name: 'Abandoned Street',
     swatch: ['#8a9bb0', '#4a5568', '#1c2230'],
     sky: { top: 0x1c2230, mid: 0x3d4a63, bottom: 0x7a8aa0 },
-    fog: { color: 0x2a3140, density: 0.0085 },
+    fog: { color: 0x2a3140, density: 0.014 },
     sun: { light: 0xcdd8e8, disc: 0xe8eef5 },
     hemi: { sky: 0x8a9bb0, ground: 0x1c2018 },
     fill: 0x5f7fa8,
@@ -655,12 +655,17 @@ function addCollider(minX, minZ, maxX, maxZ, map = 'classic') {
 // the noise amplitude is kept small and is explicitly flattened over the PERCH ramp/
 // platform, the central road, and the spawn point to avoid any visible mismatch with
 // the collision the game actually simulates. One mesh, one draw call, same as before.
-// Map selection state and City-only scene group must exist before terrain textures are built.
-const cityGroup = new THREE.Group();
-scene.add(cityGroup);
-cityGroup.visible = false;
+// Map selection state and the Street-only scene group must exist before terrain textures are built.
+const streetGroup = new THREE.Group();
+scene.add(streetGroup);
+streetGroup.visible = false;
 let activeMapKey = 'classic';
 const classicEnvironmentObjects = [];
+// World-space Z of the street model's center once loaded/positioned by
+// loadStreetModel() — a fixed design constant (not computed at runtime)
+// so the shared sun light can be re-targeted onto it (see the map-picker
+// confirm handler) even before the model has actually loaded.
+const STREET_MODEL_CENTER_Z = -31.2;
 
 const floorMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, vertexColors: true });
 const FLOOR_SEGS = 64;
@@ -762,9 +767,13 @@ floor.rotation.x = -Math.PI / 2;
 floor.receiveShadow = true;
 
 scene.add(floor);
-// Continuous grime overlay for the city map's streets: dark weathered asphalt
-// with scattered oil stains and grime streaks (the City map's equivalent of the
-// classic map's bare sand — a distinct ground read, not just a palette swap).
+// Continuous grime overlay for the Abandoned Street map's ground: dark
+// weathered asphalt with scattered oil stains and grime streaks (this map's
+// equivalent of the classic map's bare sand — a distinct ground read, not
+// just a palette swap). The uploaded street model brings its own road/
+// sidewalk meshes for the area it actually covers, but the player's full
+// movement area is bigger than that footprint, so this still ground the
+// street model sits on and stops the player from seeing void past its edges.
 {
   const c=document.createElement('canvas'); c.width=1024; c.height=1024;
   const ctx=c.getContext('2d');
@@ -786,19 +795,18 @@ scene.add(floor);
   }
   const grimeTex=new THREE.CanvasTexture(c);
   grimeTex.wrapS=grimeTex.wrapT=THREE.RepeatWrapping;
-  // Sized to stay under the flanking buildings even where they run past the
-  // player's movement boundary (they're stretched 150 units deep, further
-  // than cityArenaHalf) — otherwise the ground would visibly run out under
-  // the far ends of the buildings while they're still on screen.
-  const CITY_GROUND_SPAN = 380;
+  // Sized to cover the whole street map's play boundary (CFG.streetArenaHalf),
+  // with a little margin, so the ground never visibly runs out under the
+  // player no matter where in the movement area they walk.
+  const STREET_GROUND_SPAN = (CFG.streetArenaHalf + 4) * 2;
   // Keep the same texel density as the original 72-unit-wide plane instead of
-  // stretching one 2x2 tiling across the much bigger city ground.
-  const grimeRepeat = 2 * CITY_GROUND_SPAN / 72;
+  // stretching one 2x2 tiling across this bigger ground.
+  const grimeRepeat = 2 * STREET_GROUND_SPAN / 72;
   grimeTex.repeat.set(grimeRepeat, grimeRepeat);
-  const grimeMesh=new THREE.Mesh(new THREE.PlaneGeometry(CITY_GROUND_SPAN,CITY_GROUND_SPAN),
+  const grimeMesh=new THREE.Mesh(new THREE.PlaneGeometry(STREET_GROUND_SPAN,STREET_GROUND_SPAN),
     new THREE.MeshStandardMaterial({map:grimeTex,color:0xffffff,roughness:.92,metalness:.04,envMapIntensity:.25,transparent:true,opacity:.82}));
-  grimeMesh.rotation.x=-Math.PI/2;grimeMesh.position.y=.045;grimeMesh.receiveShadow=true;
-  cityGroup.add(grimeMesh);
+  grimeMesh.rotation.x=-Math.PI/2;grimeMesh.position.y=.04;grimeMesh.receiveShadow=true;
+  streetGroup.add(grimeMesh);
 }
 
 
@@ -1014,62 +1022,22 @@ haze.position.y = 1.4;
 scene.add(haze);
 
 
-// CITY MAP LAYER — a real scanned city block as a landmark structure the
-// player fights around (not inside — it's a dense, mostly-solid mass of
-// attached buildings, not a hollow interior), dressed with the same
-// cargo-container/concrete-barrier street cover used by every other map.
-// The block itself is loaded on demand by loadCityModel() (see below) the
-// first time a player picks this map in the battlefield picker, not
-// fetched eagerly at startup — it's by far the heaviest real asset in this
-// project (~13MB), and this project has hit real-hardware GPU/texture-memory
-// regressions from stacking real assets more than once, so it stays opt-in
-// rather than adding load to every page visit.
-const cityHemi = new THREE.HemisphereLight(0x8a9bb0, 0x1c2018, 0.95);
-cityHemi.visible = false; cityGroup.add(cityHemi);
-const citySun = new THREE.DirectionalLight(0xcdd8e8, 1.6);
-citySun.position.set(-20, 38, -14); citySun.castShadow = true;
-citySun.shadow.mapSize.set(2048,2048); citySun.shadow.camera.left=-130; citySun.shadow.camera.right=130;
-citySun.shadow.camera.top=130; citySun.shadow.camera.bottom=-130; citySun.shadow.bias=-0.0015;
-citySun.visible = false; cityGroup.add(citySun);
-// Delivery/cargo crates scattered along the street.
-const cargoMat = [
- new THREE.MeshStandardMaterial({color:0x343d45,roughness:.86,metalness:.35}),
- new THREE.MeshStandardMaterial({color:0x4b555d,roughness:.88,metalness:.25}),
- new THREE.MeshStandardMaterial({color:0x5b4039,roughness:.9,metalness:.2})
-];
-const cargoGeo=new THREE.BoxGeometry(4.6,2.3,2.15);
-for(let i=0;i<14;i++){
- const side=i%2===0?-1:1, row=Math.floor(i/2);
- const mesh=new THREE.Mesh(cargoGeo,cargoMat[i%cargoMat.length]);
- mesh.position.set(side*(8.5+(row%3)*2.2),1.15,-8-row*3.2);
- addCollider(mesh.position.x-2.55, mesh.position.z-1.25, mesh.position.x+2.55, mesh.position.z+1.25, 'city');
- mesh.rotation.y=side*.05+(i%3)*.035; mesh.castShadow=true;mesh.receiveShadow=true;
- cityGroup.add(mesh);
- const ribGeo=new THREE.BoxGeometry(.08,2.18,2.2);
- for(let r=0;r<9;r++){
-   const rib=new THREE.Mesh(ribGeo,cargoMat[0]);
-   rib.position.set(mesh.position.x-2.1+r*.52,1.15,mesh.position.z);
-   rib.castShadow=true; cityGroup.add(rib);
- }
-}
-// Concrete road barriers lining the approach toward the city block.
-const concreteMat=new THREE.MeshStandardMaterial({color:0x59636a,roughness:.95});
-for(let i=0;i<8;i++){
- const b=new THREE.Mesh(new THREE.BoxGeometry(2.6,1.05,.75),concreteMat);
- b.position.set(-6.8+i*1.95,.52,-4.2); b.rotation.y=(i%2?-.04:.04);
- b.castShadow=true;b.receiveShadow=true;cityGroup.add(b);
- addCollider(b.position.x-1.35, b.position.z-.55, b.position.x+1.35, b.position.z+.55, 'city');
-}
-// Street debris piles — this map's equivalent of the old snow berms,
-// marking a visible transition from the spawn toward the city block.
-const rubbleMat=new THREE.MeshStandardMaterial({color:0x4a4238,roughness:1});
-for(let i=0;i<10;i++){
-  const side=i%2===0?-1:1, z=-3-Math.floor(i/2)*3.6;
-  const rubble=new THREE.Mesh(new THREE.IcosahedronGeometry(1,2),rubbleMat);
-  rubble.position.set(side*(10.5+(i%3)*1.3),.6,z);
-  rubble.scale.set(2.2,1.05,1.65);rubble.castShadow=true;rubble.receiveShadow=true;cityGroup.add(rubble);
- addCollider(rubble.position.x-1.8, rubble.position.z-1.35, rubble.position.x+1.8, rubble.position.z+1.35, 'city');
-}
+// ABANDONED STREET MAP LAYER — a real scanned/modeled street block, with
+// nothing else hand-placed in it: no carried-over crates, barriers or
+// rubble from the other maps' dressing. Everything the player sees and
+// collides with here — street, buildings, props — comes from the uploaded
+// model itself (see loadStreetModel below), plus the plain ground plane
+// above so the player's movement area doesn't run out of ground past the
+// model's own footprint. The model is loaded on demand the first time a
+// player picks this map in the battlefield picker, not fetched eagerly at
+// startup — it's the heaviest real asset in this project (~13MB), and this
+// project has hit real-hardware GPU/texture-memory regressions from
+// stacking real assets more than once, so it stays opt-in.
+//
+// Lighting for this map reuses the shared scene sun/hemi/fill lights
+// (reskinned to the 'street' theme by applyTheme), re-targeted to the
+// street model's center — see the sun-retargeting code in the map-picker
+// confirm handler below — rather than a second, separate light rig.
 
 // Boundary walls
 const wallMat = new THREE.MeshStandardMaterial({ color: 0x5a4530, roughness: 0.96, metalness: 0.015 });
@@ -1545,7 +1513,7 @@ const ASSET_SIZES = {
   'assets/boulder_real.glb': 2609956,
   'assets/boulder_real2.glb': 2384680,
   'assets/shipping_container.glb': 5627592,
-  'assets/city_pack_3.glb': 13343248,
+  'assets/abandoned_city_street.glb': 13666076,
 };
 
 // Tracks download progress (0..1 per URL) across every real asset fetched
@@ -1576,7 +1544,7 @@ const AssetLoadTracker = {
 // directly, purely so AssetLoadTracker can report real incremental progress
 // as bytes arrive — the resolved value is the same ArrayBuffer either way,
 // so every existing caller (loadRealEnvProp, loadBoulderTemplate,
-// loadRealAssaultModel, loadCityModel) is a drop-in swap with no other
+// loadRealAssaultModel, loadStreetModel) is a drop-in swap with no other
 // change in behavior. Falls back to a plain arrayBuffer() read (progress
 // just jumps straight to 100% for that file) if the body can't be streamed
 // or no length is known at all.
@@ -1654,6 +1622,13 @@ function loadRealEnvProp(url, instances, opts) {
             child.frustumCulled = false;
             child.userData.type = 'env';
             child.userData.surface = opts.surface || 'metal';
+            // These real-asset swaps load asynchronously and can finish
+            // after the player has already picked a map — set the initial
+            // visibility to match whichever map is active right now rather
+            // than always starting visible (the Abandoned Street map should
+            // have nothing pre-existing in it, classic env props included).
+            // The confirm handler's envMeshes toggle takes over from here.
+            child.visible = activeMapKey !== 'street';
             envMeshes.push(child);
           }
         });
@@ -1683,25 +1658,29 @@ function loadRealEnvProp(url, instances, opts) {
     });
 }
 
-// City map centerpiece — a real scanned city block, loaded on demand (not at
-// startup) the first time the player picks the City map in the battlefield
-// picker, and cached so picking it again doesn't re-fetch. Deliberately
-// opt-in: at ~13MB it's the heaviest real asset in this project, and loading
-// it only for players who actually choose this map avoids adding that cost
-// to every page visit the way the always-on classic-map assets do.
-// Credit: "City pack 3" by Pasha (https://sketchfab.com/Pasha.), Sketchfab
-// Standard license — see README for details.
+// Abandoned Street map centerpiece — a real street scene (buildings flanking
+// a road, already modeled as a proper street, not a single landmark blob),
+// loaded on demand (not at startup) the first time the player picks this
+// map in the battlefield picker, and cached so picking it again doesn't
+// re-fetch. Deliberately opt-in: at ~13MB it's the heaviest real asset in
+// this project, and loading it only for players who actually choose this
+// map avoids adding that cost to every page visit the way the always-on
+// classic-map assets do.
+// Credit: "Abandoned City Street For Games" — see README for details.
 //
-// Unlike the single hollow building this map used to use, this scan is a
-// dense, mostly-contiguous mass of attached buildings — there's no real
-// walkable interior to put the player inside. So two big, stretched copies
-// of it are used as solid walls flanking a street (see the instancing logic
-// below), rather than one small landmark viewed from a distance.
-let cityModelPromise = null;
-function loadCityModel() {
-  if (cityModelPromise) return cityModelPromise;
+// Unlike the old city_pack_3 scan (one dense, inseparable mass of attached
+// buildings that had to be duplicated/stretched into a fake street), this
+// model already IS a street: real buildings on both sides of a road, built
+// at human/world scale (its raw bounding box is ~23 x 5.5 x 28 world units —
+// i.e. already close to the scale this game uses everywhere else, where
+// CFG.eyeHeight is 1.65). So this is used close to as-is: grounded, scaled
+// up moderately for a bit more presence, placed once — no duplicating,
+// mirroring, or stretching a single landmark to fake a bigger scene.
+let streetModelPromise = null;
+function loadStreetModel() {
+  if (streetModelPromise) return streetModelPromise;
   if (typeof THREE.GLTFLoader !== 'function') return Promise.resolve();
-  cityModelPromise = fetchArrayBufferWithProgress('assets/city_pack_3.glb')
+  streetModelPromise = fetchArrayBufferWithProgress('assets/abandoned_city_street.glb')
     .then((buffer) => new Promise((resolve, reject) => {
       new THREE.GLTFLoader().parse(buffer, '', resolve, reject);
     }))
@@ -1712,12 +1691,15 @@ function loadCityModel() {
       const rawSize = box.getSize(new THREE.Vector3());
 
       // Ground on the real street level, not the raw bounding-box minimum —
-      // same lesson as the old factory model: a sliver of below-ground scan
-      // noise can sit well under the actual floor and drag box.min.y down
+      // same lesson learned from every other real asset in this project: a
+      // sliver of below-ground geometry (curbs, gutters, foundations) can
+      // sit under the actual walkable street level and drag box.min.y down
       // with it. Sample vertex heights and use a low percentile instead;
-      // also collect X/Z alongside Y in the same pass so the same sample set
-      // can build the collision footprint below without walking the mesh
-      // twice.
+      // also collect X/Z alongside Y in the same pass so the same sample
+      // set can build the collision footprint below without walking the
+      // mesh twice. (Checked this model's actual Y distribution offline
+      // first — only a small sliver of points sit meaningfully below street
+      // level, consistent with real curbs/gutters, not scan noise.)
       template.updateMatrixWorld(true);
       const sampled = [];
       const vTemp = new THREE.Vector3();
@@ -1739,7 +1721,6 @@ function loadCityModel() {
       template.position.x -= center.x;
       template.position.z -= center.z;
       template.position.y -= groundY;
-      template.updateMatrixWorld(true);
       template.traverse((child) => {
         if (child.isMesh) {
           child.castShadow = true;
@@ -1748,49 +1729,40 @@ function loadCityModel() {
         }
       });
 
-      // Big street canyon, not one small landmark: two copies of the scan
-      // (mirrored on one side for a bit of variety) flank a street running
-      // north from spawn, each stretched non-uniformly — wide and tall
-      // rather than a uniform rescale — so buildings loom close on both
-      // sides the way a real downtown street does, instead of sitting as a
-      // single distant mass. This scan has no walkable interior (it's one
-      // dense, contiguous attached-building mass), so each copy is treated
-      // as a solid wall the player fights alongside, not inside.
-      const TARGET_WIDTH = 90;   // x extent of each flanking block
-      const TARGET_DEPTH = 150;  // z extent, running alongside the street
-      const HEIGHT_BOOST = 1.55; // extra vertical exaggeration for a towering feel
-      const STREET_HALF_WIDTH = 26; // clears the fixed bot spawn points (|x|<=24)
-      const NEAR_Z = -15; // closest building edge to spawn (spawn is at z=6)
-
-      const scaleX = TARGET_WIDTH / rawSize.x;
-      const scaleZ = TARGET_DEPTH / rawSize.z;
-      const scaleY = ((scaleX + scaleZ) / 2) * HEIGHT_BOOST;
-      const buildingHalfX = TARGET_WIDTH / 2;
-      const buildingHalfZ = TARGET_DEPTH / 2;
+      // Moderate, uniform scale-up — this model is already built close to
+      // world/human scale, so (unlike the old city scan) there's no need to
+      // fight its proportions with a non-uniform stretch. 1.8x makes its
+      // ~5.5-unit raw building height read as a solid two/three-story
+      // presence against this game's 1.65 eye height, without blowing the
+      // street out past a size the player can actually walk end to end.
+      const SCALE = 1.8;
+      const buildingHalfZ = (rawSize.z * SCALE) / 2;
+      // Leaves an open approach from spawn (z=6) before the street starts.
+      const NEAR_Z = -6;
       const posZ = NEAR_Z - buildingHalfZ;
-
-      const instanceDefs = [
-        { posX: -(STREET_HALF_WIDTH + buildingHalfX), mirror: false },
-        { posX: STREET_HALF_WIDTH + buildingHalfX, mirror: true },
-      ];
+      // Keep in sync with STREET_MODEL_CENTER_Z above (used to re-target the
+      // shared sun light onto this model before/without it being loaded).
+      const wrapper = new THREE.Group();
+      wrapper.add(template);
+      wrapper.scale.setScalar(SCALE);
+      wrapper.position.set(0, 0, posZ);
+      streetGroup.add(wrapper);
+      wrapper.updateMatrixWorld(true);
 
       // Real collision for the buildings, computed from the actual geometry
-      // instead of guessed/hand-placed — this scan isn't a handful of
-      // separate buildings with clean gaps between them, it's one dense,
-      // irregularly-shaped mass, so a handful of hand-authored boxes
-      // wouldn't track its real footprint. Bin the sampled points (collected
-      // above, in raw pre-transform space) into a 2D ground-plane grid, mark
-      // a cell solid when it has meaningfully-above-street geometry, then
-      // greedily merge adjacent solid cells into a small number of
-      // rectangles (a run per row, extended downward while the row below
-      // matches) rather than one collider per cell. Run once per instance,
-      // reusing the same raw sample/grid (only the final world-space
-      // transform — scale + position + mirror — differs per instance).
-      // Coarse AABB collision only, same fidelity as every other real prop
-      // in this game — it traces the building mass's footprint, not each
-      // individual wall.
-      const heightThreshold = groundY + rawSize.y * 0.03;
-      const GRID_NX = 26, GRID_NZ = 34;
+      // instead of guessed/hand-placed. This model is modular (dozens of
+      // separate building-piece meshes) rather than one fused blob, but the
+      // same grid-sampling approach used for every other real asset in this
+      // project still applies cleanly and doesn't need per-mesh special
+      // casing: bin the sampled points (collected above, in raw
+      // pre-transform space) into a 2D ground-plane grid, mark a cell solid
+      // when it has meaningfully-above-street geometry, then greedily merge
+      // adjacent solid cells into a small number of rectangles (a run per
+      // row, extended downward while the row below matches) rather than one
+      // collider per cell. Coarse AABB collision only, same fidelity as
+      // every other real prop in this game.
+      const heightThreshold = groundY + rawSize.y * 0.06;
+      const GRID_NX = 30, GRID_NZ = 36;
       const gxMin = box.min.x, gxMax = box.max.x, gzMin = box.min.z, gzMax = box.max.z;
       const cellW = (gxMax - gxMin) / GRID_NX, cellD = (gzMax - gzMin) / GRID_NZ;
       const counts = new Int32Array(GRID_NX * GRID_NZ);
@@ -1806,61 +1778,46 @@ function loadCityModel() {
       const MIN_POINTS = 3;
       const occupied = new Uint8Array(GRID_NX * GRID_NZ);
       for (let i = 0; i < occupied.length; i++) occupied[i] = counts[i] >= MIN_POINTS ? 1 : 0;
+      const consumed = new Uint8Array(GRID_NX * GRID_NZ);
       const pad = 0.15;
-
-      instanceDefs.forEach((def) => {
-        const inst = template.clone(true);
-        const wrapper = new THREE.Group();
-        wrapper.add(inst);
-        wrapper.scale.set(def.mirror ? -scaleX : scaleX, scaleY, scaleZ);
-        wrapper.position.set(def.posX, 0, posZ);
-        cityGroup.add(wrapper);
-        wrapper.updateMatrixWorld(true);
-
-        const consumed = new Uint8Array(GRID_NX * GRID_NZ);
-        for (let cz = 0; cz < GRID_NZ; cz++) {
-          let cx = 0;
-          while (cx < GRID_NX) {
-            const idx = cz * GRID_NX + cx;
-            if (!occupied[idx] || consumed[idx]) { cx++; continue; }
-            // Extend this run rightward along the row.
-            let runEnd = cx;
-            while (runEnd + 1 < GRID_NX) {
-              const nIdx = cz * GRID_NX + (runEnd + 1);
-              if (!occupied[nIdx] || consumed[nIdx]) break;
-              runEnd++;
-            }
-            // Extend the run downward as long as every cell in the same
-            // [cx, runEnd] column range is also solid and unconsumed.
-            let rowEnd = cz;
-            outer:
-            while (rowEnd + 1 < GRID_NZ) {
-              for (let x = cx; x <= runEnd; x++) {
-                const nIdx = (rowEnd + 1) * GRID_NX + x;
-                if (!occupied[nIdx] || consumed[nIdx]) break outer;
-              }
-              rowEnd++;
-            }
-            for (let z = cz; z <= rowEnd; z++) {
-              for (let x = cx; x <= runEnd; x++) consumed[z * GRID_NX + x] = 1;
-            }
-            const rawX0 = gxMin + cx * cellW, rawX1 = gxMin + (runEnd + 1) * cellW;
-            const rawZ0 = gzMin + cz * cellD, rawZ1 = gzMin + (rowEnd + 1) * cellD;
-            let wx0 = (rawX0 - center.x) * wrapper.scale.x + wrapper.position.x;
-            let wx1 = (rawX1 - center.x) * wrapper.scale.x + wrapper.position.x;
-            if (wx0 > wx1) { const t = wx0; wx0 = wx1; wx1 = t; }
-            const wz0 = (rawZ0 - center.z) * wrapper.scale.z + wrapper.position.z - pad;
-            const wz1 = (rawZ1 - center.z) * wrapper.scale.z + wrapper.position.z + pad;
-            addCollider(wx0 - pad, wz0, wx1 + pad, wz1, 'city');
-            cx = runEnd + 1;
+      for (let cz = 0; cz < GRID_NZ; cz++) {
+        let cx = 0;
+        while (cx < GRID_NX) {
+          const idx = cz * GRID_NX + cx;
+          if (!occupied[idx] || consumed[idx]) { cx++; continue; }
+          let runEnd = cx;
+          while (runEnd + 1 < GRID_NX) {
+            const nIdx = cz * GRID_NX + (runEnd + 1);
+            if (!occupied[nIdx] || consumed[nIdx]) break;
+            runEnd++;
           }
+          let rowEnd = cz;
+          outer:
+          while (rowEnd + 1 < GRID_NZ) {
+            for (let x = cx; x <= runEnd; x++) {
+              const nIdx = (rowEnd + 1) * GRID_NX + x;
+              if (!occupied[nIdx] || consumed[nIdx]) break outer;
+            }
+            rowEnd++;
+          }
+          for (let z = cz; z <= rowEnd; z++) {
+            for (let x = cx; x <= runEnd; x++) consumed[z * GRID_NX + x] = 1;
+          }
+          const rawX0 = gxMin + cx * cellW, rawX1 = gxMin + (runEnd + 1) * cellW;
+          const rawZ0 = gzMin + cz * cellD, rawZ1 = gzMin + (rowEnd + 1) * cellD;
+          const wx0 = (rawX0 - center.x) * SCALE + wrapper.position.x - pad;
+          const wx1 = (rawX1 - center.x) * SCALE + wrapper.position.x + pad;
+          const wz0 = (rawZ0 - center.z) * SCALE + wrapper.position.z - pad;
+          const wz1 = (rawZ1 - center.z) * SCALE + wrapper.position.z + pad;
+          addCollider(wx0, wz0, wx1, wz1, 'street');
+          cx = runEnd + 1;
         }
-      });
+      }
     })
     .catch((err) => {
-      console.error('City map: failed to load assets/city_pack_3.glb — the map will show without the city block.', err);
+      console.error('Abandoned Street map: failed to load assets/abandoned_city_street.glb — the map will show without the street model.', err);
     });
-  return cityModelPromise;
+  return streetModelPromise;
 }
 
 // Fetches+parses one boulder model and returns a ready-to-clone template
@@ -1922,6 +1879,8 @@ function swapRockForReal(rock, tpl) {
       child.frustumCulled = false;
       child.userData.type = 'env';
       child.userData.surface = 'rock';
+      // Same async-swap-after-map-pick guard as loadRealEnvProp above.
+      child.visible = activeMapKey !== 'street';
       envMeshes.push(child);
     }
   });
@@ -2024,7 +1983,7 @@ const mountainMesh = new THREE.InstancedMesh(new THREE.ConeGeometry(1, 1, 6), mo
 mountainMesh.castShadow = false; mountainMesh.receiveShadow = false;
 {
   const dummy = new THREE.Object3D();
-  const ringRadius = Math.max(CFG.arenaHalf, CFG.cityArenaHalf) + 45;
+  const ringRadius = Math.max(CFG.arenaHalf, CFG.streetArenaHalf) + 45;
   for (let i = 0; i < MOUNTAIN_COUNT; i++) {
     const angle = (i / MOUNTAIN_COUNT) * Math.PI * 2 + Math.random() * 0.15;
     // depth 0..1: closer instances read as midground foothills, farther ones as
@@ -2259,7 +2218,7 @@ applyTheme(currentThemeKey);
 /* Map select UI (mission briefing screen) */
 const THEME_BLURBS = {
   dustline: 'Sun-scorched canyon ridgelines and crumbling supply outposts.',
-  city: 'A dense, half-abandoned city block looming over cracked streets.',
+  street: 'An abandoned city street, buildings looming on both sides of a dead road.',
   nightshade: 'Neon-lit ruins under a bleeding violet sky.',
 };
 const themeSwatchesEl = document.getElementById('theme-swatches');
@@ -2305,7 +2264,7 @@ function resolveCircleVsBoxes(pos, radius, ignoreList) {
       pos.z += (dz / dist) * push;
     }
   }
-  const limit = (activeMapKey === 'city' ? CFG.cityArenaHalf : CFG.arenaHalf) - 0.6;
+  const limit = (activeMapKey === 'street' ? CFG.streetArenaHalf : CFG.arenaHalf) - 0.6;
   pos.x = Math.max(-limit, Math.min(limit, pos.x));
   pos.z = Math.max(-limit, Math.min(limit, pos.z));
 }
@@ -5221,11 +5180,11 @@ const DEPLOY_STATUS_LINES_CORE = [
   'Raising cargo containers...',
   'Calibrating optics...',
 ];
-const DEPLOY_STATUS_LINES_CITY = [
+const DEPLOY_STATUS_LINES_STREET = [
   'Streaming rifle rig...',
-  'Raising the city block...',
-  'Raising cargo containers...',
-  'Scattering debris...',
+  'Raising the street block...',
+  'Grounding the pavement...',
+  'Mapping building collision...',
 ];
 const DEPLOY_TIPS = [
   "TIP: Reload before your magazine runs dry — there's no mid-reload cancel.",
@@ -5244,10 +5203,10 @@ function beginDeployment() {
   const tipEl = document.getElementById('loading-screen-tip');
   loadingEl.classList.remove('hidden');
 
-  const useCity = activeMapKey === 'city';
+  const useStreet = activeMapKey === 'street';
   const relevantUrls = ['assets/ak47.glb', 'assets/boulder_real.glb', 'assets/boulder_real2.glb', 'assets/shipping_container.glb']
-    .concat(useCity ? ['assets/city_pack_3.glb'] : []);
-  const statusLines = useCity ? DEPLOY_STATUS_LINES_CITY : DEPLOY_STATUS_LINES_CORE;
+    .concat(useStreet ? ['assets/abandoned_city_street.glb'] : []);
+  const statusLines = useStreet ? DEPLOY_STATUS_LINES_STREET : DEPLOY_STATUS_LINES_CORE;
 
   tipEl.textContent = DEPLOY_TIPS[Math.floor(Math.random() * DEPLOY_TIPS.length)];
   statusEl.textContent = statusLines[0];
@@ -5291,7 +5250,7 @@ function beginDeployment() {
     startGame();
   }
 
-  const assetsReady = Promise.all([mainAssetsPromise, useCity ? loadCityModel() : Promise.resolve()]);
+  const assetsReady = Promise.all([mainAssetsPromise, useStreet ? loadStreetModel() : Promise.resolve()]);
   // A short minimum display time so the screen always reads as an
   // intentional beat rather than a flash, even when everything was already
   // cached/loaded by the time the player reaches it.
@@ -5311,36 +5270,53 @@ document.getElementById('start-btn').addEventListener('click', () => {
 function selectMapChoice(key) {
   pendingMapChoice = key;
   document.getElementById('map-choice-classic').classList.toggle('selected', key === 'classic');
-  document.getElementById('map-choice-city').classList.toggle('selected', key === 'city');
-  // Kick off the city block's (large, ~13MB) fetch as soon as it's picked in
+  document.getElementById('map-choice-street').classList.toggle('selected', key === 'street');
+  // Kick off the street model's (large, ~13MB) fetch as soon as it's picked in
   // the list, giving it a head start while the player is still on the picker/
-  // warning dialog. loadCityModel() is cached, so this never double-fetches.
-  if (key === 'city') loadCityModel();
+  // warning dialog. loadStreetModel() is cached, so this never double-fetches.
+  if (key === 'street') loadStreetModel();
 }
 document.getElementById('map-choice-classic').addEventListener('click', () => selectMapChoice('classic'));
-document.getElementById('map-choice-city').addEventListener('click', () => selectMapChoice('city'));
+document.getElementById('map-choice-street').addEventListener('click', () => selectMapChoice('street'));
 document.getElementById('map-choice-cancel').addEventListener('click', () => {
   document.getElementById('map-picker').classList.add('hidden');
 });
 document.getElementById('map-choice-confirm').addEventListener('click', () => {
   document.getElementById('map-picker').classList.add('hidden');
   activeMapKey = pendingMapChoice;
-  const useCity = activeMapKey === 'city';
+  const useStreet = activeMapKey === 'street';
   // Switch the sky, fog, ambient/direct lighting and palette with the selected theatre.
-  if (typeof applyTheme === 'function') applyTheme(useCity ? 'city' : 'dustline');
-  cityGroup.visible = useCity;
-  // Keep Dustline Canyon intact, but hide its arena dressing when City is selected.
-  if (typeof floor !== 'undefined') floor.visible = !useCity;
-  if (typeof haze !== 'undefined') haze.visible = !useCity;
-  if (typeof envMeshes !== 'undefined') envMeshes.forEach(m => { m.visible = !useCity; });
-  if (typeof grassInst !== 'undefined') grassInst.visible = !useCity;
-  if (typeof pebbleInst !== 'undefined') pebbleInst.visible = !useCity;
-  if (typeof shaleInst !== 'undefined') shaleInst.visible = !useCity;
+  if (typeof applyTheme === 'function') applyTheme(useStreet ? 'street' : 'dustline');
+  streetGroup.visible = useStreet;
+  // Re-target the shared sun (and its shadow camera) onto the street model's
+  // center when that map is active, rather than leaving it fixed on the
+  // classic arena's origin — keeps the same light angle (fixed offset from
+  // target) but keeps its shadow frustum centered on whichever map's
+  // content actually needs shadows.
+  if (typeof sun !== 'undefined' && sun.target) {
+    const targetZ = useStreet ? STREET_MODEL_CENTER_Z : 0;
+    sun.target.position.set(0, 0, targetZ);
+    sun.target.updateMatrixWorld();
+    sun.position.set(36, 46, targetZ - 20);
+  }
+  // Keep Dustline Canyon intact, but hide its arena dressing when the
+  // Abandoned Street map is selected.
+  if (typeof floor !== 'undefined') floor.visible = !useStreet;
+  if (typeof haze !== 'undefined') haze.visible = !useStreet;
+  if (typeof envMeshes !== 'undefined') envMeshes.forEach(m => { m.visible = !useStreet; });
+  if (typeof grassInst !== 'undefined') grassInst.visible = !useStreet;
+  if (typeof pebbleInst !== 'undefined') pebbleInst.visible = !useStreet;
+  if (typeof shaleInst !== 'undefined') shaleInst.visible = !useStreet;
+  if (typeof scrubA !== 'undefined') scrubA.visible = !useStreet;
+  if (typeof scrubB !== 'undefined') scrubB.visible = !useStreet;
+  if (typeof road !== 'undefined') road.visible = !useStreet;
+  if (typeof fencePosts !== 'undefined') fencePosts.visible = !useStreet;
+  if (typeof fenceWire !== 'undefined') fenceWire.visible = !useStreet;
   // Keep the classic map's atmospheric road/decals out of the other map.
   scene.traverse(o => {
-    if (o.userData && o.userData.classicOnly) o.visible = !useCity;
+    if (o.userData && o.userData.classicOnly) o.visible = !useStreet;
   });
-  if (useCity) {
+  if (useStreet) {
     document.getElementById('graphics-warning').classList.remove('hidden');
   } else {
     beginDeployment();
