@@ -649,6 +649,19 @@ function addCollider(minX, minZ, maxX, maxZ, map = 'classic') {
   collidables.push({ min: { x: minX, z: minZ }, max: { x: maxX, z: maxZ }, map });
 }
 
+// Oriented variant — a box collider that isn't aligned to the world X/Z
+// axes, rotated `rot` radians (yaw) around its center. Needed for pieces
+// placed at an angle (diagonal collapsed debris panels, rotated wall
+// segments): an axis-aligned Box3 around a 45°-rotated square is up to
+// sqrt(2) bigger than the piece's real footprint on each side, which reads
+// in-game as an invisible wall blocking the player well before they
+// actually reach the visible geometry. (cx, cz) is the box's world-space
+// center and (hx, hz) are its HALF-extents in its own local, unrotated
+// frame (i.e. before `rot` is applied) — not world-space AABB half-sizes.
+function addRotatedCollider(cx, cz, hx, hz, rot, map = 'classic') {
+  collidables.push({ cx, cz, hx, hz, rot, map });
+}
+
 // Floor — subdivided into a grid and displaced with gentle low-poly noise for real
 // terrain relief (slopes/dips/rock variation). This is a VISUAL-ONLY heightfield: the
 // player/bot ground-snap logic still uses getGroundHeight() (flat 0, except PERCH), so
@@ -1796,8 +1809,21 @@ function loadStreetModel() {
       const pad = 0.1;
       const MIN_SOLID_HEIGHT = 0.12; // world units — drops near-zero-thickness decals outright
       const MIN_FLAT_RATIO = 0.12;   // height / footprint — drops wide-but-thin slabs and panels
+      // Pieces placed at an angle (diagonal collapsed-debris panels, rotated
+      // wall segments) need an ORIENTED collider, not an axis-aligned one —
+      // a plain world-space Box3 around a 45°-rotated piece is up to
+      // sqrt(2) bigger on each side than its real footprint, which reads
+      // in-game as an invisible wall well before the player reaches the
+      // visible geometry (exactly what was reported). Anything within a few
+      // degrees of axis-aligned keeps the cheap AABB path — the inflation
+      // is negligible there and most of this model's pieces ARE aligned.
+      const ROT_THRESHOLD_DEG = 5;
       const meshBox = new THREE.Box3();
       const meshSize = new THREE.Vector3();
+      const worldQuat = new THREE.Quaternion();
+      const worldScale = new THREE.Vector3();
+      const worldPos = new THREE.Vector3();
+      const localCenter = new THREE.Vector3();
       let colliderCount = 0;
       template.traverse((child) => {
         if (!child.isMesh || !child.geometry) return;
@@ -1806,7 +1832,27 @@ function loadStreetModel() {
         if (meshSize.y < MIN_SOLID_HEIGHT) return;
         const footprint = Math.max(meshSize.x, meshSize.z);
         if (meshSize.y / Math.max(footprint, 0.001) < MIN_FLAT_RATIO) return;
-        addCollider(meshBox.min.x - pad, meshBox.min.z - pad, meshBox.max.x + pad, meshBox.max.z + pad, 'street');
+
+        child.getWorldQuaternion(worldQuat);
+        const yaw = new THREE.Euler().setFromQuaternion(worldQuat, 'YXZ').y;
+        const yawOffDeg = Math.abs((((yaw * 180 / Math.PI) % 90) + 90) % 90);
+        const yawOffFromAxis = Math.min(yawOffDeg, 90 - yawOffDeg);
+
+        if (yawOffFromAxis <= ROT_THRESHOLD_DEG) {
+          addCollider(meshBox.min.x - pad, meshBox.min.z - pad, meshBox.max.x + pad, meshBox.max.z + pad, 'street');
+        } else {
+          // Oriented collider — half-extents come from the mesh's own LOCAL
+          // (unrotated) bounding box, scaled by its true world scale, not
+          // from the inflated world-space AABB computed above.
+          if (!child.geometry.boundingBox) child.geometry.computeBoundingBox();
+          const gBox = child.geometry.boundingBox;
+          child.getWorldScale(worldScale);
+          localCenter.copy(gBox.min).add(gBox.max).multiplyScalar(0.5);
+          worldPos.copy(localCenter).applyMatrix4(child.matrixWorld);
+          const hx = ((gBox.max.x - gBox.min.x) / 2) * worldScale.x + pad;
+          const hz = ((gBox.max.z - gBox.min.z) / 2) * worldScale.z + pad;
+          addRotatedCollider(worldPos.x, worldPos.z, hx, hz, yaw, 'street');
+        }
         colliderCount++;
       });
       if (colliderCount === 0) {
@@ -2252,11 +2298,32 @@ if (briefingEnvEl) briefingEnvEl.textContent = THEMES[currentThemeKey].name;
 function resolveCircleVsBoxes(pos, radius, ignoreList) {
   for (const box of collidables) {
     if (box.map && box.map !== activeMapKey) continue;
-    const cx = Math.max(box.min.x, Math.min(pos.x, box.max.x));
-    const cz = Math.max(box.min.z, Math.min(pos.z, box.max.z));
-    const dx = pos.x - cx, dz = pos.z - cz;
-    const dist = Math.sqrt(dx * dx + dz * dz);
+    let dx, dz, dist;
+    let rotCos = 1, rotSin = 0; // identity — only used to rotate the push vector back for oriented boxes
+    if (box.rot) {
+      // Oriented box — work in the box's own local, unrotated frame: rotate
+      // the player position by -rot around the box's center, do the usual
+      // clamp-to-box-then-measure-distance against its HALF-extents, then
+      // rotate whatever push results back into world space. This is what
+      // keeps collision hugging an angled piece's real footprint instead of
+      // its (much bigger) axis-aligned bounding box — see addRotatedCollider.
+      const c = Math.cos(-box.rot), s = Math.sin(-box.rot);
+      const relX = pos.x - box.cx, relZ = pos.z - box.cz;
+      const lx = relX * c - relZ * s;
+      const lz = relX * s + relZ * c;
+      const clx = Math.max(-box.hx, Math.min(lx, box.hx));
+      const clz = Math.max(-box.hz, Math.min(lz, box.hz));
+      dx = lx - clx; dz = lz - clz;
+      dist = Math.sqrt(dx * dx + dz * dz);
+      rotCos = Math.cos(box.rot); rotSin = Math.sin(box.rot);
+    } else {
+      const cx = Math.max(box.min.x, Math.min(pos.x, box.max.x));
+      const cz = Math.max(box.min.z, Math.min(pos.z, box.max.z));
+      dx = pos.x - cx; dz = pos.z - cz;
+      dist = Math.sqrt(dx * dx + dz * dz);
+    }
     if (dist < radius) {
+      let pushX, pushZ;
       if (dist === 0) {
         // Center landed exactly on/inside the box (common once a collider's
         // footprint straddles the x=0 centerline the player walks along) —
@@ -2265,11 +2332,19 @@ function resolveCircleVsBoxes(pos, radius, ignoreList) {
         // as the normalization divisor after resetting dx/dz to a unit
         // vector, so it divided by 0.001 instead of 1 — flinging the player
         // ~1000x radius sideways in one frame instead of nudging them out.
-        pos.x += radius;
+        pushX = radius; pushZ = 0;
       } else {
         const push = (radius - dist);
-        pos.x += (dx / dist) * push;
-        pos.z += (dz / dist) * push;
+        pushX = (dx / dist) * push;
+        pushZ = (dz / dist) * push;
+      }
+      if (box.rot) {
+        // Rotate the local-space push vector back into world space.
+        pos.x += pushX * rotCos - pushZ * rotSin;
+        pos.z += pushX * rotSin + pushZ * rotCos;
+      } else {
+        pos.x += pushX;
+        pos.z += pushZ;
       }
     }
   }
