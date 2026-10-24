@@ -14,7 +14,7 @@ const CFG = {
   // match its model's real footprint (see loadStreetModel) plus a small
   // margin — not an arbitrary blown-up arena. See resolveCircleVsBoxes,
   // which picks between this and arenaHalf based on the active map.
-  streetArenaHalf: 88,
+  streetArenaHalf: 100,
   mouseSens: 0.0022,
   touchLookSens: 0.0045,
   bot: {
@@ -665,7 +665,13 @@ const classicEnvironmentObjects = [];
 // loadStreetModel() — a fixed design constant (not computed at runtime)
 // so the shared sun light can be re-targeted onto it (see the map-picker
 // confirm handler) even before the model has actually loaded.
-const STREET_MODEL_CENTER_Z = -42.4;
+const STREET_MODEL_CENTER_Z = 0;
+// World-space spawn point for the Abandoned Street map — a real open gap
+// inside the model's own interior courtyard (found from the generated
+// collider field, with a few units of clearance to the nearest wall on
+// every side), so the player starts inside the street block instead of
+// approaching it from open ground outside. See startGame().
+const STREET_SPAWN = { x: -2, z: 0 };
 
 const floorMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, vertexColors: true });
 const FLOOR_SEGS = 64;
@@ -1731,24 +1737,20 @@ function loadStreetModel() {
 
       // Uniform scale-up — this model is already built close to world/human
       // scale, so (unlike the old city scan) there's no need to fight its
-      // proportions with a non-uniform stretch. An earlier pass used 1.8x on
-      // the assumption that the raw ~5.5-unit building height would read as
-      // a solid two/three-story presence against this game's 1.65 eye
-      // height — in practice it didn't: most of this model's wall/building
-      // pieces top out well below their own raw bounding box (the tallest
-      // points are towers/rooftop details, not the typical wall height), so
-      // at 1.8x the median piece ended up only ~2.2x eye height — squat,
-      // crate-like, nothing like a real street. 2.6x brings the median
-      // piece to roughly 3.2x eye height (a believable low-rise presence)
-      // and the tallest points well above that, without the street running
-      // so long the arena has to balloon unreasonably (see streetArenaHalf).
-      const SCALE = 2.6;
+      // proportions with a non-uniform stretch. 4x makes the typical
+      // building/wall piece read as a real towering presence (well past the
+      // squat, crate-like look earlier, smaller scale passes had), and the
+      // street's own footprint becomes a real place to be inside of rather
+      // than something small enough to view end-to-end from outside it.
+      const SCALE = 4.0;
       const buildingHalfZ = (rawSize.z * SCALE) / 2;
-      // Leaves an open approach from spawn (z=6) before the street starts.
-      const NEAR_Z = -6;
-      const posZ = NEAR_Z - buildingHalfZ;
-      // Keep in sync with STREET_MODEL_CENTER_Z above (used to re-target the
-      // shared sun light onto this model before/without it being loaded).
+      // Centered on the world origin rather than placed off in front of
+      // spawn — spawn (see startGame's map-aware spawn point) sits inside
+      // this model's own interior courtyard, not approaching it from open
+      // ground outside, so the player is in the street from the first
+      // frame. Keep in sync with STREET_MODEL_CENTER_Z above (used to
+      // re-target the shared sun light onto this model before it's loaded).
+      const posZ = 0;
       const wrapper = new THREE.Group();
       wrapper.add(template);
       wrapper.scale.setScalar(SCALE);
@@ -5141,7 +5143,16 @@ function startGame() {
   setCombatIntensity('low');
   startCombatMusic();
   player.health = player.maxHealth; player.alive = true;
-  player.pos.set(0, 0, 6); player.velY = 0;
+  // Classic spawns on the open arena's edge; the Abandoned Street map spawns
+  // the player inside the model's own interior courtyard (a real clear gap
+  // between its buildings, found from the generated collider field — see
+  // STREET_SPAWN) rather than on open ground outside looking in.
+  if (activeMapKey === 'street') {
+    player.pos.set(STREET_SPAWN.x, 0, STREET_SPAWN.z);
+  } else {
+    player.pos.set(0, 0, 6);
+  }
+  player.velY = 0;
   stats.shots = 0; stats.hits = 0; stats.kills = 0; stats.startTime = performance.now();
   Object.keys(weaponsState).forEach((k) => {
     const def = WEAPON_DEFS[k], st = weaponsState[k];
