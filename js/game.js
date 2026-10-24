@@ -1750,68 +1750,58 @@ function loadStreetModel() {
       wrapper.updateMatrixWorld(true);
 
       // Real collision for the buildings, computed from the actual geometry
-      // instead of guessed/hand-placed. This model is modular (dozens of
-      // separate building-piece meshes) rather than one fused blob, but the
-      // same grid-sampling approach used for every other real asset in this
-      // project still applies cleanly and doesn't need per-mesh special
-      // casing: bin the sampled points (collected above, in raw
-      // pre-transform space) into a 2D ground-plane grid, mark a cell solid
-      // when it has meaningfully-above-street geometry, then greedily merge
-      // adjacent solid cells into a small number of rectangles (a run per
-      // row, extended downward while the row below matches) rather than one
-      // collider per cell. Coarse AABB collision only, same fidelity as
-      // every other real prop in this game.
-      const heightThreshold = groundY + rawSize.y * 0.06;
-      const GRID_NX = 30, GRID_NZ = 36;
-      const gxMin = box.min.x, gxMax = box.max.x, gzMin = box.min.z, gzMax = box.max.z;
-      const cellW = (gxMax - gxMin) / GRID_NX, cellD = (gzMax - gzMin) / GRID_NZ;
-      const counts = new Int32Array(GRID_NX * GRID_NZ);
-      for (let i = 0; i < sampled.length; i += 3) {
-        const px = sampled[i], py = sampled[i + 1], pz = sampled[i + 2];
-        if (py < heightThreshold) continue;
-        let cx = Math.floor((px - gxMin) / cellW);
-        let cz = Math.floor((pz - gzMin) / cellD);
-        if (cx < 0) cx = 0; else if (cx >= GRID_NX) cx = GRID_NX - 1;
-        if (cz < 0) cz = 0; else if (cz >= GRID_NZ) cz = GRID_NZ - 1;
-        counts[cz * GRID_NX + cx]++;
-      }
-      const MIN_POINTS = 3;
-      const occupied = new Uint8Array(GRID_NX * GRID_NZ);
-      for (let i = 0; i < occupied.length; i++) occupied[i] = counts[i] >= MIN_POINTS ? 1 : 0;
-      const consumed = new Uint8Array(GRID_NX * GRID_NZ);
-      const pad = 0.15;
-      for (let cz = 0; cz < GRID_NZ; cz++) {
-        let cx = 0;
-        while (cx < GRID_NX) {
-          const idx = cz * GRID_NX + cx;
-          if (!occupied[idx] || consumed[idx]) { cx++; continue; }
-          let runEnd = cx;
-          while (runEnd + 1 < GRID_NX) {
-            const nIdx = cz * GRID_NX + (runEnd + 1);
-            if (!occupied[nIdx] || consumed[nIdx]) break;
-            runEnd++;
-          }
-          let rowEnd = cz;
-          outer:
-          while (rowEnd + 1 < GRID_NZ) {
-            for (let x = cx; x <= runEnd; x++) {
-              const nIdx = (rowEnd + 1) * GRID_NX + x;
-              if (!occupied[nIdx] || consumed[nIdx]) break outer;
-            }
-            rowEnd++;
-          }
-          for (let z = cz; z <= rowEnd; z++) {
-            for (let x = cx; x <= runEnd; x++) consumed[z * GRID_NX + x] = 1;
-          }
-          const rawX0 = gxMin + cx * cellW, rawX1 = gxMin + (runEnd + 1) * cellW;
-          const rawZ0 = gzMin + cz * cellD, rawZ1 = gzMin + (rowEnd + 1) * cellD;
-          const wx0 = (rawX0 - center.x) * SCALE + wrapper.position.x - pad;
-          const wx1 = (rawX1 - center.x) * SCALE + wrapper.position.x + pad;
-          const wz0 = (rawZ0 - center.z) * SCALE + wrapper.position.z - pad;
-          const wz1 = (rawZ1 - center.z) * SCALE + wrapper.position.z + pad;
-          addCollider(wx0, wz0, wx1, wz1, 'street');
-          cx = runEnd + 1;
-        }
+      // instead of guessed/hand-placed — but per-MESH here, not the grid-
+      // sampling approach used for the old city scan. That technique was
+      // built for a single fused, inseparable blob with no per-object
+      // granularity; this model is the opposite — a modular kit of ~90
+      // separate building-piece meshes with real gaps between them for the
+      // street and sidewalks. Running the same grid/occupancy approach on it
+      // first produced a fragmented mess of tiny colliders that didn't line
+      // up with the actual walkable gaps (confirmed by dumping the
+      // generated collider field and comparing it against the model's real
+      // layout) — exactly the "can't roam around" symptom. Per-mesh AABBs
+      // line up exactly with what's actually modeled instead.
+      //
+      // Each mesh's TRUE world-space bounding box (after this wrapper's
+      // scale/position are applied) decides whether it's a real solid piece
+      // or a flat decal: the street/sidewalk meshes in this model are
+      // authored as local planes that only end up flat (near-zero world Y
+      // extent) once their own node transform is applied, so a flat-ness
+      // check has to happen in world space, post-transform — not against
+      // the raw local geometry, which can be misleading (some of these
+      // "flat" pieces have large-looking local bounds before their node
+      // transform squashes them down).
+      //
+      // An absolute height cutoff alone isn't enough here: this model's
+      // ground/plaza slab (one single mesh, ~29x29 world units once
+      // scaled) has just enough modeled thickness (~0.8 world units) to
+      // clear a small flat height cutoff, which first produced one giant
+      // collider covering almost the whole street — exactly the
+      // "can't roam around" bug. A flatness RATIO (height vs. footprint)
+      // catches that case regardless of absolute scale: a slab this wide
+      // reads as paper-thin relative to its footprint even though its
+      // absolute thickness isn't tiny, while an actual wall module stays
+      // comfortably un-flat at any size. Checked both against every mesh
+      // in this model offline first to pick thresholds that keep every
+      // real wall/prop and drop every ground/signage/awning decal.
+      const pad = 0.1;
+      const MIN_SOLID_HEIGHT = 0.12; // world units — drops near-zero-thickness decals outright
+      const MIN_FLAT_RATIO = 0.12;   // height / footprint — drops wide-but-thin slabs and panels
+      const meshBox = new THREE.Box3();
+      const meshSize = new THREE.Vector3();
+      let colliderCount = 0;
+      template.traverse((child) => {
+        if (!child.isMesh || !child.geometry) return;
+        meshBox.setFromObject(child);
+        meshBox.getSize(meshSize);
+        if (meshSize.y < MIN_SOLID_HEIGHT) return;
+        const footprint = Math.max(meshSize.x, meshSize.z);
+        if (meshSize.y / Math.max(footprint, 0.001) < MIN_FLAT_RATIO) return;
+        addCollider(meshBox.min.x - pad, meshBox.min.z - pad, meshBox.max.x + pad, meshBox.max.z + pad, 'street');
+        colliderCount++;
+      });
+      if (colliderCount === 0) {
+        console.error('Abandoned Street map: no solid meshes found for collision — every mesh in the model read as flat. Map will look right but have no building collision.');
       }
     })
     .catch((err) => {
@@ -2255,13 +2245,23 @@ function resolveCircleVsBoxes(pos, radius, ignoreList) {
     if (box.map && box.map !== activeMapKey) continue;
     const cx = Math.max(box.min.x, Math.min(pos.x, box.max.x));
     const cz = Math.max(box.min.z, Math.min(pos.z, box.max.z));
-    let dx = pos.x - cx, dz = pos.z - cz;
-    let dist = Math.sqrt(dx * dx + dz * dz);
+    const dx = pos.x - cx, dz = pos.z - cz;
+    const dist = Math.sqrt(dx * dx + dz * dz);
     if (dist < radius) {
-      if (dist === 0) { dx = 1; dz = 0; dist = 0.001; }
-      const push = (radius - dist);
-      pos.x += (dx / dist) * push;
-      pos.z += (dz / dist) * push;
+      if (dist === 0) {
+        // Center landed exactly on/inside the box (common once a collider's
+        // footprint straddles the x=0 centerline the player walks along) —
+        // push out by a flat `radius` along an arbitrary fixed axis instead
+        // of normalizing (dx, dz). The old code reused the stale dist=0.001
+        // as the normalization divisor after resetting dx/dz to a unit
+        // vector, so it divided by 0.001 instead of 1 — flinging the player
+        // ~1000x radius sideways in one frame instead of nudging them out.
+        pos.x += radius;
+      } else {
+        const push = (radius - dist);
+        pos.x += (dx / dist) * push;
+        pos.z += (dz / dist) * push;
+      }
     }
   }
   const limit = (activeMapKey === 'street' ? CFG.streetArenaHalf : CFG.arenaHalf) - 0.6;
