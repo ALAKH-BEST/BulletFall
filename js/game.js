@@ -14,7 +14,7 @@ const CFG = {
   // match its model's real footprint (see loadStreetModel) plus a small
   // margin — not an arbitrary blown-up arena. See resolveCircleVsBoxes,
   // which picks between this and arenaHalf based on the active map.
-  streetArenaHalf: 62,
+  streetArenaHalf: 88,
   mouseSens: 0.0022,
   touchLookSens: 0.0045,
   bot: {
@@ -665,7 +665,7 @@ const classicEnvironmentObjects = [];
 // loadStreetModel() — a fixed design constant (not computed at runtime)
 // so the shared sun light can be re-targeted onto it (see the map-picker
 // confirm handler) even before the model has actually loaded.
-const STREET_MODEL_CENTER_Z = -31.2;
+const STREET_MODEL_CENTER_Z = -42.4;
 
 const floorMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, vertexColors: true });
 const FLOOR_SEGS = 64;
@@ -1729,13 +1729,20 @@ function loadStreetModel() {
         }
       });
 
-      // Moderate, uniform scale-up — this model is already built close to
-      // world/human scale, so (unlike the old city scan) there's no need to
-      // fight its proportions with a non-uniform stretch. 1.8x makes its
-      // ~5.5-unit raw building height read as a solid two/three-story
-      // presence against this game's 1.65 eye height, without blowing the
-      // street out past a size the player can actually walk end to end.
-      const SCALE = 1.8;
+      // Uniform scale-up — this model is already built close to world/human
+      // scale, so (unlike the old city scan) there's no need to fight its
+      // proportions with a non-uniform stretch. An earlier pass used 1.8x on
+      // the assumption that the raw ~5.5-unit building height would read as
+      // a solid two/three-story presence against this game's 1.65 eye
+      // height — in practice it didn't: most of this model's wall/building
+      // pieces top out well below their own raw bounding box (the tallest
+      // points are towers/rooftop details, not the typical wall height), so
+      // at 1.8x the median piece ended up only ~2.2x eye height — squat,
+      // crate-like, nothing like a real street. 2.6x brings the median
+      // piece to roughly 3.2x eye height (a believable low-rise presence)
+      // and the tallest points well above that, without the street running
+      // so long the arena has to balloon unreasonably (see streetArenaHalf).
+      const SCALE = 2.6;
       const buildingHalfZ = (rawSize.z * SCALE) / 2;
       // Leaves an open approach from spawn (z=6) before the street starts.
       const NEAR_Z = -6;
