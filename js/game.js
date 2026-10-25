@@ -1677,6 +1677,76 @@ function loadRealEnvProp(url, instances, opts) {
     });
 }
 
+// Street Outpost — a small, fully enterable room, built procedurally (same
+// approach as the classic map's crates/walls, not a fetched asset). The real
+// "Abandoned City Street" model below is an exterior-facade kit: its window
+// and door openings are all shallow 1-2 unit pockets backed by solid
+// geometry, not real rooms (confirmed by flying a camera through several of
+// them) — there is nothing to actually walk into anywhere in that model. So
+// rather than fake an "enter a building" feeling with more facade, this is a
+// real room with real depth: four walls with a true doorway gap (no
+// collider across the opening), a floor, a roof, and an interior light —
+// placed off to the side of the main street model, in open ground, so it
+// doesn't collide with or get swallowed by it.
+function buildStreetOutpost(cx, cz) {
+  const group = new THREE.Group();
+  group.position.set(cx, 0, cz);
+  streetGroup.add(group);
+
+  const hx = 5, hz = 4;      // half-extents of the room's exterior footprint
+  const wallHt = 4.2;         // tall enough to clear CFG.eyeHeight (1.65) with real headroom
+  const t = 0.4;               // wall thickness
+  const doorW = 2.4;           // doorway gap, centered on the south wall
+
+  function wallMesh(w, d, lx, lz) {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, wallHt, d), wallMat);
+    m.position.set(lx, wallHt / 2, lz);
+    m.castShadow = true; m.receiveShadow = true;
+    m.userData.type = 'env'; m.userData.surface = 'rock';
+    group.add(m);
+    addCollider(cx + lx - w / 2, cz + lz - d / 2, cx + lx + w / 2, cz + lz + d / 2, 'street');
+  }
+  // South wall, split around the doorway.
+  wallMesh(hx - doorW / 2, t, -(hx + doorW / 2) / 2, -hz);
+  wallMesh(hx - doorW / 2, t, (hx + doorW / 2) / 2, -hz);
+  // North, west, east walls — solid.
+  wallMesh(hx * 2, t, 0, hz);
+  wallMesh(t, hz * 2, -hx, 0);
+  wallMesh(t, hz * 2, hx, 0);
+
+  // Floor — a distinct, slightly raised slab so the room reads as its own
+  // interior space rather than just more street ground.
+  const floorMesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(hx * 2 - t, hz * 2 - t),
+    new THREE.MeshStandardMaterial({ color: 0x2c2f33, roughness: 0.9, metalness: 0.05 })
+  );
+  floorMesh.rotation.x = -Math.PI / 2;
+  floorMesh.position.set(0, 0.03, 0);
+  floorMesh.receiveShadow = true;
+  group.add(floorMesh);
+
+  // Roof — visual cap only (no collider: there's no way up to it, and
+  // nothing in this game climbs), kept just above wall height.
+  const roofMesh = new THREE.Mesh(
+    new THREE.BoxGeometry(hx * 2 + t, 0.3, hz * 2 + t),
+    wallMat
+  );
+  roofMesh.position.set(0, wallHt + 0.15, 0);
+  roofMesh.castShadow = true;
+  group.add(roofMesh);
+
+  // Warm interior light — the street's own lighting is dim/blue, so without
+  // this the inside of the room would read as a flat black box.
+  const lamp = new THREE.PointLight(0xffb870, 1.4, 11, 2);
+  lamp.position.set(0, wallHt - 0.7, 0);
+  group.add(lamp);
+}
+// Open ground south of the main street block — clear of its dense building
+// mass by a wide margin (checked against the generated collider field), not
+// tucked into one of the structure's own internal courtyard gaps where it'd
+// be crowded against or hidden behind the existing geometry.
+buildStreetOutpost(5, -35);
+
 // Abandoned Street map centerpiece — a real street scene (buildings flanking
 // a road, already modeled as a proper street, not a single landmark blob),
 // loaded on demand (not at startup) the first time the player picks this
