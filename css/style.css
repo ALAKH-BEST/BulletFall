@@ -253,7 +253,7 @@
     background:rgba(20,14,6,0.55); border-right:2px solid var(--sand);
     padding:4px 10px; border-radius:2px; text-align:right;
     white-space:nowrap;
-    /* opacity/transform are driven per-frame by updateKillFeed() in game.js,
+    /* opacity/transform are driven per-frame by updateKillFeed() in js/game/12-hud-feed.js,
        not a CSS animation — see the comment above addKillFeedEntry() for why. */
   }
   .kf-entry .kf-you{ color:var(--sand); }

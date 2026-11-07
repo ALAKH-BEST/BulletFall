@@ -532,7 +532,25 @@
 <!-- GLTFLoader (three-gltf-loader v1.111.0, MIT License, https://github.com/johh/three-gltf-loader) patched to attach THREE.GLTFLoader as a global instead of CommonJS export, so it works with the plain script-tag build of three.js r128 above. -->
 <script src="js/gltf-loader.js"></script>
 
-<!-- First-person arms + AK47 model: assets/ak47.glb (glTF binary). "Ak47" by kursat_sokmen (https://skfb.ly/6UEL9), CC BY 4.0. Fetched and parsed at runtime by js/game.js. -->
-<script src="js/game.js"></script>
+<!-- First-person arms + AK47 model: assets/ak47.glb (glTF binary). "Ak47" by kursat_sokmen (https://skfb.ly/6UEL9), CC BY 4.0. Fetched and parsed at runtime by js/game/. -->
+<!-- The game itself, split into ordered classic scripts. They share one global scope, so the load order below matters. -->
+<script src="js/game/01-config.js"></script>
+<script src="js/game/02-audio.js"></script>
+<script src="js/game/03-scene.js"></script>
+<script src="js/game/04-arena.js"></script>
+<script src="js/game/05-theme-application.js"></script>
+<script src="js/game/06-collision.js"></script>
+<script src="js/game/07-input.js"></script>
+<script src="js/game/08-player.js"></script>
+<script src="js/game/09-weapon-models.js"></script>
+<script src="js/game/10-weather.js"></script>
+<script src="js/game/11-pickups.js"></script>
+<script src="js/game/12-hud-feed.js"></script>
+<script src="js/game/13-weapons.js"></script>
+<script src="js/game/14-bots.js"></script>
+<script src="js/game/15-waves-score.js"></script>
+<script src="js/game/16-hud.js"></script>
+<script src="js/game/17-game-state.js"></script>
+<script src="js/game/18-main-loop.js"></script>
 </body>
 </html>
