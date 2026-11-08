@@ -23,7 +23,25 @@ index.html             # page shell — markup only, loads everything else
 css/style.css           # all styling (HUD, menus, overlays)
 js/error-handler.js      # top-level error banner
 js/gltf-loader.js        # patched THREE.GLTFLoader (three-gltf-loader v1.111.0, adapted for r128's global/non-module build)
-js/game.js               # the game itself — scene setup, weapons, enemies, waves, input, HUD
+js/game/                 # the game itself, split into ordered scripts that share one global scope (load order is set in index.html)
+  01-config.js             #   config, themes, save system, XP and levels
+  02-audio.js              #   synthesized sound effects
+  03-scene.js              #   scene, renderer, lighting
+  04-arena.js              #   arena geometry, terrain, real props, the street map
+  05-theme-application.js  #   retinting shared geometry per theme
+  06-collision.js          #   collision helpers
+  07-input.js              #   desktop and mobile input
+  08-player.js             #   player movement and state
+  09-weapon-models.js      #   real first-person and static weapon models
+  10-weather.js            #   weather effects
+  11-pickups.js            #   ammo crates and medikits
+  12-hud-feed.js           #   damage numbers, kill feed, minimap
+  13-weapons.js            #   weapon loadouts and firing
+  14-bots.js               #   enemy bots
+  15-waves-score.js        #   waves, score and streaks
+  16-hud.js                #   HUD updates
+  17-game-state.js         #   game state and lifecycle
+  18-main-loop.js          #   the animation loop
 assets/ak47.glb                # rigged first-person AK47 + hands model, fetched and parsed at startup
 assets/shotgun_real.glb        # static Remington 870 MCS model, swapped in over the procedural shotgun body
 assets/lmg_real.glb            # static Browning M2 model, swapped in over the procedural LMG body
@@ -40,7 +58,7 @@ This used to be one single ~18.8MB HTML file with the AK47 model embedded inline
 ## Weapons
 
 - **Assault rifle** — the real scanned AK47 model: rigged hands + gun body, with idle/fire/reload animation clips.
-- **Shotgun** and **LMG** — real static gun meshes (Remington 870 MCS, Browning M2) swapped in over where the procedural box-and-cylinder body used to sit. These aren't rigged/animated like the AK47 — just a nicer-looking mesh held by the same procedural arms every other weapon uses. Swapping in a real mesh this way (rather than reusing the AK47 rig's animated bones) is deliberately low-risk: see the comment above `REAL_HANDS_WEAPONS` in `js/game.js` for why bone-sharing across weapons was tried and abandoned.
+- **Shotgun** and **LMG** — real static gun meshes (Remington 870 MCS, Browning M2) swapped in over where the procedural box-and-cylinder body used to sit. These aren't rigged/animated like the AK47 — just a nicer-looking mesh held by the same procedural arms every other weapon uses. Swapping in a real mesh this way (rather than reusing the AK47 rig's animated bones) is deliberately low-risk: see the comment above `REAL_HANDS_WEAPONS` in `js/game/09-weapon-models.js` for why bone-sharing across weapons was tried and abandoned.
 - **Sniper** and **SMG** — still fully procedural; no real model sourced for these yet (Sketchfab didn't have a free-download option for the ones found, only preview-only listings).
 - **LMG specifically** is "deployed" rather than carried: equipping it (`5`) locks player movement and jumping in place (bipod down), dips the view slightly, and tightens bullet spread — meant to feel like setting up a braced gun position rather than just holding a bigger rifle. Switching to any other weapon un-deploys it instantly.
 - **Combat Knife** (`6`) — a melee weapon, purely procedural like the shotgun/sniper/SMG/LMG bodies (no fetched asset, deliberately — real-sourced env props have caused real-hardware GPU/texture regressions more than once in this project, so the one weapon with zero download risk stays hand-built). No ammo, no reload — it's a short-range single raycast on each swing instead of ranged ballistics, with its own quick slash-kick animation and whoosh sound effect in place of a muzzle flash/casing eject. Right-click doesn't aim down sights with it equipped. The HUD shows "MELEE" instead of an ammo count, and knife swings aren't counted into the accuracy stat (which tracks gunplay, not melee).
@@ -71,7 +89,7 @@ Unlike the earlier city scan this map used to use (one dense, inseparable mass o
 
 ## Environment props
 
-Real sourced models have been built for several of the procedural boxes/barriers/rocks in the arena, the same way the shotgun and LMG got real gun meshes. These went live in stages, one at a time, after the full container+barrier+sandbag+boulder chain caused a real-hardware regression on first attempt (the AK47 and even the always-present procedural crates disappeared — consistent with a WebGL context loss from exceeding the device's GPU/texture memory budget). Boulders went back in first, alone, and were confirmed working; the shipping container followed once that was confirmed safe. Concrete barrier and sandbag wall are still disabled, code left in place in `js/game.js`, to keep bringing real assets back one isolated step at a time rather than all at once:
+Real sourced models have been built for several of the procedural boxes/barriers/rocks in the arena, the same way the shotgun and LMG got real gun meshes. These went live in stages, one at a time, after the full container+barrier+sandbag+boulder chain caused a real-hardware regression on first attempt (the AK47 and even the always-present procedural crates disappeared — consistent with a WebGL context loss from exceeding the device's GPU/texture memory budget). Boulders went back in first, alone, and were confirmed working; the shipping container followed once that was confirmed safe. Concrete barrier and sandbag wall are still disabled, code left in place under `js/game/`, to keep bringing real assets back one isolated step at a time rather than all at once:
 
 - **Shipping container** *(live)* — replaces four of the largest procedural crates near the central combat area.
 - **Concrete barrier** *(disabled)* — would line the central road as cover, alternating sides.
