@@ -1,110 +1,47 @@
 # BULLETFALL — Test Arena
 
-A browser-based first-person shooter built with [Three.js](https://threejs.org/) r128, plain JavaScript and CSS — no build step, no bundler, no framework.
+A browser-based first-person shooter built with [Three.js](https://threejs.org/) r128, plain JavaScript and CSS. No build step, no bundler, no framework. **[Play it](https://alakh-best.github.io/BulletFall/)**
+
+![BULLETFALL gameplay: wave 1 on Dustline Canyon](docs/screenshot.jpg)
+
+## Features
+
+- **Waves of enemy bots**, including elites, with a score, streaks, XP and levels that unlock weapons.
+- **Six weapons:** assault rifle, SMG, shotgun, sniper, LMG and a combat knife. The LMG is deployed rather than carried: equipping it locks movement and tightens spread.
+- **Two maps:** Dustline Canyon (default) and Abandoned Street, a real modeled city street with collision built from its actual geometry.
+- **Pickups:** killed bots can drop ammo crates and medikits that despawn after about 22 seconds.
+- **HUD:** minimap, kill feed, floating damage numbers and an accuracy stat.
+- **Desktop and mobile controls**, weather effects and synthesized sound.
 
 ## Running it
 
-Because the game fetches its AK47 model from `assets/ak47.glb` at runtime, it needs to be served over HTTP — opening `index.html` directly from disk (`file://`) will fail silently in most browsers, since they block `fetch()` of local files for security reasons.
-
-From this folder, run any static file server, for example:
+The game fetches its models at runtime, so it has to be served over HTTP. Opening `index.html` from disk will not work.
 
 ```bash
 python3 -m http.server 8080
 ```
 
-then open `http://localhost:8080` in your browser.
-
-**GitHub Pages** will serve this correctly with no setup: enable Pages for this repo (Settings → Pages → Deploy from branch → `main` / root), and it'll be playable at `https://<your-username>.github.io/bulletfall/`.
+Then open `http://localhost:8080`. GitHub Pages serves it with no setup (Settings → Pages → Deploy from branch → `main` / root).
 
 ## Project structure
 
 ```
-index.html             # page shell — markup only, loads everything else
-css/style.css           # all styling (HUD, menus, overlays)
-js/error-handler.js      # top-level error banner
-js/gltf-loader.js        # patched THREE.GLTFLoader (three-gltf-loader v1.111.0, adapted for r128's global/non-module build)
-js/game/                 # the game itself, split into ordered scripts that share one global scope (load order is set in index.html)
-  01-config.js             #   config, themes, save system, XP and levels
-  02-audio.js              #   synthesized sound effects
-  03-scene.js              #   scene, renderer, lighting
-  04-arena.js              #   arena geometry, terrain, real props, the street map
-  05-theme-application.js  #   retinting shared geometry per theme
-  06-collision.js          #   collision helpers
-  07-input.js              #   desktop and mobile input
-  08-player.js             #   player movement and state
-  09-weapon-models.js      #   real first-person and static weapon models
-  10-weather.js            #   weather effects
-  11-pickups.js            #   ammo crates and medikits
-  12-hud-feed.js           #   damage numbers, kill feed, minimap
-  13-weapons.js            #   weapon loadouts and firing
-  14-bots.js               #   enemy bots
-  15-waves-score.js        #   waves, score and streaks
-  16-hud.js                #   HUD updates
-  17-game-state.js         #   game state and lifecycle
-  18-main-loop.js          #   the animation loop
-assets/ak47.glb                # rigged first-person AK47 + hands model, fetched and parsed at startup
-assets/shotgun_real.glb        # static Remington 870 MCS model, swapped in over the procedural shotgun body
-assets/lmg_real.glb            # static Browning M2 model, swapped in over the procedural LMG body
-assets/shipping_container.glb  # real shipping-container model, swapped in for some of the big procedural crates
-assets/concrete_barrier.glb    # real Jersey-style concrete road barrier, lining the central road
-assets/sandbag_wall.glb        # real stacked-sandbag model, layered over the procedural sandbag positions
-assets/boulder_real.glb        # real boulder model (Boulder 01, converted from Poly Haven's .blend source), swapped in for the hand-placed procedural rocks
-assets/boulder_real2.glb       # second real boulder variant (Namaqualand Boulder 03), alternated with boulder_real.glb for visual variety
-assets/abandoned_city_street.glb # real modeled city street, the Abandoned Street map's centerpiece — loaded on demand, not at startup
+index.html           page shell: markup only
+css/style.css        all styling (HUD, menus, overlays)
+js/error-handler.js  top-level error banner
+js/gltf-loader.js    GLTFLoader adapted for r128's non-module build
+js/game/             the game, split into ordered scripts that share one global scope
+                     (load order is set in index.html; files are numbered 01-18)
+assets/              .glb models, fetched at runtime
 ```
 
-This used to be one single ~18.8MB HTML file with the AK47 model embedded inline as a base64 string. It's now split into normal files, with models as their own binary assets (fetched at runtime instead of base64-baked into the page — base64 always inflates binary size by about a third, so this is smaller too), so the repo reads and diffs like a normal web project instead of one giant blob.
+The scripts under `js/game/` are: config, audio, scene, arena, theme application, collision, input, player, weapon models, weather, pickups, HUD feed, weapons, bots, waves and score, HUD, game state, and the main loop.
 
-## Weapons
+## Notes
 
-- **Assault rifle** — the real scanned AK47 model: rigged hands + gun body, with idle/fire/reload animation clips.
-- **Shotgun** and **LMG** — real static gun meshes (Remington 870 MCS, Browning M2) swapped in over where the procedural box-and-cylinder body used to sit. These aren't rigged/animated like the AK47 — just a nicer-looking mesh held by the same procedural arms every other weapon uses. Swapping in a real mesh this way (rather than reusing the AK47 rig's animated bones) is deliberately low-risk: see the comment above `REAL_HANDS_WEAPONS` in `js/game/09-weapon-models.js` for why bone-sharing across weapons was tried and abandoned.
-- **Sniper** and **SMG** — still fully procedural; no real model sourced for these yet (Sketchfab didn't have a free-download option for the ones found, only preview-only listings).
-- **LMG specifically** is "deployed" rather than carried: equipping it (`5`) locks player movement and jumping in place (bipod down), dips the view slightly, and tightens bullet spread — meant to feel like setting up a braced gun position rather than just holding a bigger rifle. Switching to any other weapon un-deploys it instantly.
-- **Combat Knife** (`6`) — a melee weapon, purely procedural like the shotgun/sniper/SMG/LMG bodies (no fetched asset, deliberately — real-sourced env props have caused real-hardware GPU/texture regressions more than once in this project, so the one weapon with zero download risk stays hand-built). No ammo, no reload — it's a short-range single raycast on each swing instead of ranged ballistics, with its own quick slash-kick animation and whoosh sound effect in place of a muzzle flash/casing eject. Right-click doesn't aim down sights with it equipped. The HUD shows "MELEE" instead of an ammo count, and knife swings aren't counted into the accuracy stat (which tracks gunplay, not melee).
-
-## Pickups
-
-Killed bots have a chance to drop a pickup at their feet — an ammo crate or a medikit, bobbing and slowly spinning in place. Walk over one to collect it:
-
-- **Ammo crate** — refills the *currently equipped* weapon's reserve ammo by 30-55% of its max. Left alone if that weapon's reserve is already full.
-- **Medikit** — heals the player 35 HP. Left alone if already at full health.
-
-Drops despawn after ~22 seconds if not collected (fading out just before they do), so the arena doesn't fill up with permanent clutter over a long run.
-
-## Maps
-
-The battlefield picker (reached after pressing Deploy) offers two maps, sharing all progression, weapons and the wave system:
-
-- **Dustline Canyon** *(default)* — the original sun-scorched canyon arena.
-- **Abandoned Street** *(high graphics)* — a real modeled abandoned city street (buildings on both sides of a road, already built as a street scene rather than a single landmark), standing in for the old city/factory map. It's the heaviest real asset in this project (~13MB), so unlike every other real model here it is **not** fetched at startup — `loadStreetModel()` only runs the first time a player actually picks this map in the picker (cached after that), so players who never choose it never pay for the download. A performance warning dialog (the same one the old city/factory maps used) is shown before deployment. This map also starts from a clean slate — no carried-over crates, barriers or rubble from the other maps' dressing, and the other maps' always-on real props (boulders, the shipping container, fences, road decals) are hidden here too — so everything the player sees and collides with comes from the uploaded model itself, plus a plain ground plane so the player's full movement area doesn't run out of ground past the model's own footprint.
-
-Unlike the earlier city scan this map used to use (one dense, inseparable mass of attached buildings that had to be duplicated and non-uniformly stretched to fake a street), this model already *is* a street — real buildings with window openings, chain-link fencing and power lines running down both sides of a road. `loadStreetModel()` grounds it on its real street level (sampled, not just the raw bounding-box minimum — the same percentile-based approach used for every other real scan here) and scales it up a uniform 4× from its raw ~23 × 5.5 × 28-unit bounding box: an earlier, smaller scale pass looked squat and crate-like once actually measured on screen (most of the model's wall pieces top out well below its own tallest points, which are towers/rooftop details, not typical wall height), so 4× is what it actually takes for this model to read as a real street block against this game's 1.65 eye height. It's centered on the world origin and the player spawns *inside* its own interior courtyard — a real clear gap between its buildings — rather than approaching it from open ground outside. This map gets its own, right-sized play boundary (`CFG.streetArenaHalf`, 100 vs. the classic map's 36) — sized to actually match the model's real (now much larger) footprint plus room to roam beyond it.
-
-**Collision is computed from the actual geometry at load time, not hand-placed.** Unlike the grid-sampling approach used for the single-fused-blob assets elsewhere in this project, this model is a modular kit of roughly 90 separate building-piece meshes with real gaps between them for the street and sidewalks — so `loadStreetModel()` instead gives each mesh its own collider, built from that mesh's true world-space bounding box (computed after the model's scale and position are applied). A mesh only becomes a solid collider if it clears both an absolute minimum height and a flatness ratio (height vs. footprint) check, which is what correctly excludes the model's wide ground/plaza slab — thin relative to its huge footprint even though its absolute thickness alone would otherwise read as "solid" — while still catching every real wall, building front and prop. About 40% of this model's pieces (collapsed debris panels, angled wall segments) sit at an angle rather than aligned to the world axes, so those get a proper oriented-box collider (`addRotatedCollider`) hugging their real rotated footprint, instead of a plain axis-aligned box that would otherwise be up to ~40% bigger on every side than the piece actually is. Collision always matches whatever's actually in the model, buildings are genuinely solid (no walking through walls), and the street's real gaps — including right up against angled debris — stay walkable.
-
-**Licensing note on the street model**: unlike every other real asset in this project (all CC0 or CC-BY, which explicitly permit redistribution), the source and license of `assets/abandoned_city_street.glb` ("Abandoned City Street For Games") are unknown — no metadata was available, and the repo owner didn't have a source link on hand. It's included anyway at the repo owner's explicit instruction. If you know its origin, or this tradeoff matters for your use, swap in a model with a clear license.
-
-**The Street Outpost**: the "Abandoned City Street" model is an exterior-facade kit — every window and door opening in it is a shallow 1-2 unit pocket backed by solid geometry, not a real room, so there's nowhere in that model itself to actually walk inside. To give the player one real enterable space, `buildStreetOutpost()` procedurally builds a small standalone room south of the main street block (open ground, well clear of its footprint) — four walls with a true doorway gap, a floor, a roof and an interior light, all built the same way as the classic map's crates and boundary walls (no fetched asset).
-
-## Environment props
-
-Real sourced models have been built for several of the procedural boxes/barriers/rocks in the arena, the same way the shotgun and LMG got real gun meshes. These went live in stages, one at a time, after the full container+barrier+sandbag+boulder chain caused a real-hardware regression on first attempt (the AK47 and even the always-present procedural crates disappeared — consistent with a WebGL context loss from exceeding the device's GPU/texture memory budget). Boulders went back in first, alone, and were confirmed working; the shipping container followed once that was confirmed safe. Concrete barrier and sandbag wall are still disabled, code left in place under `js/game/`, to keep bringing real assets back one isolated step at a time rather than all at once:
-
-- **Shipping container** *(live)* — replaces four of the largest procedural crates near the central combat area.
-- **Concrete barrier** *(disabled)* — would line the central road as cover, alternating sides.
-- **Sandbag wall** *(disabled)* — would layer visually over the two existing sandbag positions.
-- **Boulders** *(live)* — the ~16 hand-placed procedural rocks the player actually walks past (not the random far-edge boundary dressing) are swapped for real boulder models, cloned at each spot and scaled to roughly match the footprint the procedural rock would have had. Two boulder variants alternate by position for visual variety. Collision is untouched — it's a same-spot visual swap over colliders the procedural rock already registered.
-
-Real assets load one at a time, each only starting once the previous one (and the AK47) has fully settled — the same sequencing used for the real gun models, to avoid stacking several large downloads on page load at once.
-
-Both boulders came from [Poly Haven](https://polyhaven.com/a/boulder_01) as `.blend` files (CC0; Poly Haven doesn't offer a lighter LOD as a direct glTF download) — converted locally with Blender's Python API (`bpy`): kept only the mid-detail LOD1 mesh, downscaled its 1k textures to 512px, and exported to `.glb` (down from an ~11.5MB everything-included export to ~2.6MB each).
-
-## HUD: minimap, kill feed, damage numbers
-
-- **Minimap** (top-right) — a player-facing-up top-down radar. Red dots are hostiles (brighter orange for elites), teal/gold dots are nearby pickups, white arrow is always the player facing "up".
-- **Kill feed** (below the minimap) — stacks up to 5 recent eliminations ("YOU ↠ HOSTILE TYPE", headshots tagged in yellow), each fading out a few seconds after it lands.
-- **Damage numbers** — float up from the hit point on every bot hit: white for a body shot, yellow for a headshot, orange for the shot that finishes the kill.
+- **Performance:** the Abandoned Street model is about 13 MB, so it loads only the first time someone picks that map. Real models are brought in one at a time because loading several large ones together once exhausted GPU memory on real hardware. The concrete barrier and sandbag wall props are still disabled for that reason.
+- **Procedural weapons:** the sniper, SMG and knife are built from basic shapes. The AK47 is a rigged model with animations; the shotgun and LMG are static meshes held by the shared procedural arms.
+- **Street model licence:** the source and licence of `assets/abandoned_city_street.glb` ("Abandoned City Street For Games") are unknown, and it is included at the repo owner's instruction. Every other asset is CC0 or CC-BY. If its origin matters for your use, swap in a model with a clear licence.
 
 ## Credits
 
@@ -114,8 +51,8 @@ Both boulders came from [Poly Haven](https://polyhaven.com/a/boulder_01) as `.bl
 - "Shipping Container" by chaschinkaa (https://sketchfab.com/3d-models/shipping-container-7bf5a49425134544b9b6708c4e45ce11), licensed CC Attribution 4.0.
 - "Lowpoly Concrete Barrier" by qb (https://sketchfab.com/3d-models/lowpoly-concrete-barrier-e0fb4ba5ee434433bbdb4a16aaa2f8fb), licensed CC Attribution 4.0.
 - "Sandbag Wall 04" by Pypunk (https://sketchfab.com/3d-models/sandbag-wall-04-a5ea125e9d534b54a3185f349da6aabd), licensed CC Attribution 4.0.
-- "Boulder 01" from Poly Haven (https://polyhaven.com/a/boulder_01), CC0 — no attribution required, credited here anyway.
-- "Namaqualand Boulder 03" from Poly Haven (https://polyhaven.com/a/namaqualand_boulder_03), CC0 — no attribution required, credited here anyway.
-- "Abandoned City Street For Games" — source/author/license unknown, see the licensing note under Maps above.
+- "Boulder 01" from Poly Haven (https://polyhaven.com/a/boulder_01), CC0.
+- "Namaqualand Boulder 03" from Poly Haven (https://polyhaven.com/a/namaqualand_boulder_03), CC0.
+- "Abandoned City Street For Games": source, author and licence unknown (see Notes).
 - Three.js r128, MIT License.
 - GLTFLoader adapted from three-gltf-loader v1.111.0 by Rich Tibbett / mrdoob, MIT License.
